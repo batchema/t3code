@@ -352,6 +352,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     ],
   },
   {
+    id: "thread-details-open-by-default",
+    title: "Open thread details by default",
+    to: "/settings/appearance",
+    searchTerms: ["show hide panel card new threads collapsed closed"],
+  },
+  {
     id: "effort-display",
     title: "Effort display",
     to: "/settings/appearance",

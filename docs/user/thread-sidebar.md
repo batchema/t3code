@@ -290,6 +290,11 @@ Select a server to open it in the browser panel. **Stop** ends the server's job
 and keeps the agent, the terminal, and T3 Code running. Stop needs terminal
 access to the environment and is not available on Windows.
 
+The thread details card starts closed in each thread. Show or hide it with
+`mod+shift+b`, and the thread remembers your choice. To show it in every thread you
+haven't opened or closed it in, turn on **Settings → Appearance → Open thread
+details by default**.
+
 To choose what the thread details card shows, right-click the card or open
 **Settings → Appearance → Thread details**. Hidden rows keep their keyboard
 shortcuts, such as Open in editor and project scripts. **Reset to default** brings
