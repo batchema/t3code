@@ -106,6 +106,8 @@ import {
   useComposerThreadDraft,
 } from "../../composerDraftStore";
 import { ComposerStashBadge } from "./ComposerStashBadge";
+import { Badge } from "../ui/badge";
+import type { VimMode } from "../../composer-vim";
 import { ComposerStashMenu } from "./ComposerStashMenu";
 import { useComposerTriggerState } from "./useComposerTriggerState";
 import { useComposerMenuItems } from "./useComposerMenuItems";
@@ -988,6 +990,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const isMobileViewport = useMediaQuery("max-sm");
   const isSoftwareKeyboardOpen = useSoftwareKeyboardOpen();
   const [isComposerFocused, setIsComposerFocused] = useState(false);
+  const [vimMode, setVimMode] = useState<VimMode | null>(null);
   const [composerSubmissionError, setComposerSubmissionError] = useState<string | null>(null);
   const [providerInputSubmissionError, setProviderInputSubmissionError] = useState<string | null>(
     null,
@@ -3459,6 +3462,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     }
                     editorRef={composerEditorRef}
                     richTextEnabled={settings.composerRichTextEnabled}
+                    vimEnabled={settings.composerVimMode}
+                    onVimModeChange={setVimMode}
                     literalText={isLiteralPendingAnswer}
                     isPathQueryActive={isPathQueryActiveStable}
                     value={activePendingProgress ? activePendingProgress.customAnswer : prompt}
@@ -3561,6 +3566,13 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                 )}
               >
                 {composerAttachButton ? <div className="me-2">{composerAttachButton}</div> : null}
+                {vimMode ? (
+                  <div className="me-2">
+                    <Badge variant="secondary" size="sm" role="status">
+                      {vimMode === "normal" ? "NORMAL" : "INSERT"}
+                    </Badge>
+                  </div>
+                ) : null}
                 <div
                   data-chat-composer-actions="right"
                   data-chat-composer-transition-actions="true"

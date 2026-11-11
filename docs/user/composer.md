@@ -37,6 +37,29 @@ at the end, leave the block. **Backspace** at the start of a code block turns it
 back into plain lines. Choose the language in a code block's corner to change
 it. Very large code blocks are shown without syntax highlighting.
 
+## Vim mode
+
+On web and desktop, turn on **Settings → Chat → Vim mode** to edit prompts with
+Vim keys. You can also toggle it from the command palette, or assign a shortcut to
+`composer.toggleVimMode` in **Settings → Keybindings**. The composer starts in
+insert mode; **Escape** switches to normal mode, and the composer footer shows
+the current mode. When a menu or prompt suggestion is open, Escape closes it
+first. In normal mode, Escape does what it does without vim mode.
+
+Normal mode supports:
+
+- Motions `h j k l`, `w b e`, `W B E`, `0 ^ $`, `gg G`, and `f F t T` with `;`
+  and `,`, with counts such as `3w`.
+- `i I a A o O` to insert.
+- `x X s S r`, `d c y` with a motion or text object, `dd cc yy`, `D C Y`, `p P`,
+  `J`, `.` to repeat, `u` to undo and `Ctrl+R` to redo.
+- Text objects `iw aw iW aW`, `i" a"`, `i' a'`, `i( a(`, `i[ a[` and `i{ a{`.
+
+Enter sends from normal mode when your **Send shortcut** would send. A file,
+skill or other chip counts as one character. Yanked and deleted text stays in
+the composer rather than the clipboard. Lines follow the composer's paragraphs,
+not wrapped lines.
+
 ## Attach files
 
 Attach up to 100 files per message. Each image can be up to 10 MiB, with at most

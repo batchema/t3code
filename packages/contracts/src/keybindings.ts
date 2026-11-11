@@ -92,6 +92,7 @@ export const STATIC_KEYBINDING_COMMANDS = [
   "composer.sendBackground",
   "composer.sendAndNewThread",
   "composer.dictation",
+  "composer.toggleVimMode",
   "composer.host",
   "composer.cycleHost",
   "composer.effort",
