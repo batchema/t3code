@@ -39,12 +39,13 @@ it. Very large code blocks are shown without syntax highlighting.
 
 ## Vim mode
 
-On web and desktop, turn on **Settings → Chat → Vim mode** to edit prompts with
-Vim keys. You can also toggle it from the command palette, or assign a shortcut to
-`composer.toggleVimMode` in **Settings → Keybindings**. The composer starts in
-insert mode; **Escape** switches to normal mode, and the composer footer shows
-the current mode. When a menu or prompt suggestion is open, Escape closes it
-first. In normal mode, Escape does what it does without vim mode.
+On web and desktop, vim mode is on by default, so you can edit prompts with Vim
+keys. Turn it off in **Settings → Chat → Vim mode**. You can also toggle it from
+the command palette, or assign a shortcut to `composer.toggleVimMode` in
+**Settings → Keybindings**. The composer starts in insert mode; **Escape**
+switches to normal mode, and the composer footer shows the current mode. When a
+menu or prompt suggestion is open, Escape closes it first. In normal mode, Escape
+does what it does without vim mode.
 
 Normal mode supports:
 

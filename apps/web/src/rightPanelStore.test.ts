@@ -11,6 +11,7 @@ import {
   pullRequestSurfaceId,
   selectActiveRightPanel,
   selectActiveRightPanelSurface,
+  selectThreadPanelOpen,
   selectThreadPanelVisibility,
   selectThreadRightPanelState,
   useRightPanelStore,
@@ -695,14 +696,31 @@ describe("rightPanelStore", () => {
         threadPanelVisibilityByThreadKey: {
           "env-1:thread-A": { inlineOpen: false, popoverOpen: true },
           "env-1:thread-B": { inlineOpen: true, popoverOpen: true },
+          "env-1:thread-C": { popoverOpen: true },
         },
       }),
     ).toEqual({
       byThreadKey: {},
       threadPanelVisibilityByThreadKey: {
         "env-1:thread-A": { inlineOpen: false, popoverOpen: false },
+        "env-1:thread-B": { inlineOpen: true, popoverOpen: false },
       },
     });
+  });
+
+  it("opens the inline card from the setting until the thread has its own choice", async () => {
+    const visibility = () => useRightPanelStore.getState().threadPanelVisibilityByThreadKey;
+    expect(selectThreadPanelOpen(visibility(), refA, "inline", false)).toBe(false);
+    expect(selectThreadPanelOpen(visibility(), refA, "inline", true)).toBe(true);
+
+    useRightPanelStore.getState().setThreadPanelOpen(refA, "inline", true);
+    useRightPanelStore.getState().setThreadPanelOpen(refB, "inline", false);
+    await reloadRightPanelStore();
+
+    for (const openByDefault of [false, true]) {
+      expect(selectThreadPanelOpen(visibility(), refA, "inline", openByDefault)).toBe(true);
+      expect(selectThreadPanelOpen(visibility(), refB, "inline", openByDefault)).toBe(false);
+    }
   });
 
   it("closes the popover atomically when the real right panel opens", () => {
@@ -714,7 +732,7 @@ describe("rightPanelStore", () => {
         useRightPanelStore.getState().threadPanelVisibilityByThreadKey,
         refA,
       ),
-    ).toEqual({ inlineOpen: true, popoverOpen: false });
+    ).toEqual({ popoverOpen: false });
   });
 
   it("keeps an open popover visible by promoting it to inline when the real panel closes", () => {
@@ -723,13 +741,19 @@ describe("rightPanelStore", () => {
     store.setThreadPanelOpen(refA, "inline", false);
     store.setThreadPanelOpen(refA, "popover", true);
     store.close(refA);
+    store.open(refB, "diff");
+    store.setThreadPanelOpen(refB, "popover", true);
+    store.close(refB);
 
-    expect(
-      selectThreadPanelVisibility(
-        useRightPanelStore.getState().threadPanelVisibilityByThreadKey,
-        refA,
-      ),
-    ).toEqual({ inlineOpen: true, popoverOpen: true });
+    const { threadPanelVisibilityByThreadKey } = useRightPanelStore.getState();
+    expect(selectThreadPanelVisibility(threadPanelVisibilityByThreadKey, refA)).toEqual({
+      inlineOpen: true,
+      popoverOpen: true,
+    });
+    expect(selectThreadPanelVisibility(threadPanelVisibilityByThreadKey, refB)).toEqual({
+      inlineOpen: true,
+      popoverOpen: true,
+    });
   });
 
   it("opens workspace-root links as the singleton files explorer", () => {

@@ -5,10 +5,10 @@
       operators (`d`, `c`, `y`) with motions and text objects, and a visible mode indicator.
 - [x] **`ctrl+`` toggles the terminal.** Match VS Code: `ctrl+`` opens and closes the terminal
       drawer, alongside the existing `mod+j`, including while the terminal has focus.
-- [ ] **Setting to hide thread details by default.** New threads always open the Thread Details
+- [x] **Setting to hide thread details by default.** New threads always open the Thread Details
       card because `inlineOpen: true` is hardcoded in `apps/web/src/rightPanelStore.ts`. Add a
-      setting such as "Show thread details in new threads" that feeds that default. Leave it on by
-      default to match today's behavior. Toggling per thread (button or `mod+shift+b`) should keep
+      setting such as "Show thread details in new threads" that feeds that default. It defaults to
+      off, so the card starts closed. Toggling per thread (button or `mod+shift+b`) should keep
       working as it does now.
 - [ ] **Agents can drive all of T3 Code.** Extend the T3 MCP server beyond orchestration
       (threads, projects, previews, devices) so agents can also control the app itself: settings,
