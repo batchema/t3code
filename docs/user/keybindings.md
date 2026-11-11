@@ -167,6 +167,9 @@ shortcut; assign one in **Settings → Keybindings**.
 `thread.regenerateTitle` generates a new title for the focused thread, like
 **Regenerate title** in the thread menu. It has no default shortcut.
 
+`composer.toggleVimMode` turns [vim mode](./composer.md#vim-mode) on or off. It
+has no default shortcut.
+
 `thread.undo` (`mod+z` by default) reverses the actions shown in the notice at the
 bottom of the sidebar, such as unpin, settle, snooze, archive, or discarding a
 draft. Consecutive

@@ -65,6 +65,7 @@ import {
   FolderGit2Icon,
   FolderIcon,
   FolderPlusIcon,
+  KeyboardIcon,
   MessageSquareDashedIcon,
   LinkIcon,
   MessageSquareIcon,
@@ -80,6 +81,7 @@ import {
   UserPlusIcon,
 } from "lucide-react";
 import { openThreadFind } from "./chat/threadFindStore";
+import { toggleComposerVimMode } from "./chat/composerVimMode";
 import {
   useDeferredValue,
   useEffect,
@@ -1661,6 +1663,18 @@ function OpenCommandPaletteDialog(props: {
       },
     });
   }
+
+  actionItems.push({
+    kind: "action",
+    value: "action:toggle-vim-mode",
+    searchTerms: ["vim", "vi", "normal mode", "insert mode", "composer", "keyboard"],
+    title: clientSettings.composerVimMode ? "Turn off vim mode" : "Turn on vim mode",
+    icon: <KeyboardIcon className={ITEM_ICON_CLASS} />,
+    shortcutCommand: "composer.toggleVimMode",
+    run: async () => {
+      toggleComposerVimMode();
+    },
+  });
 
   actionItems.push({
     kind: "action",

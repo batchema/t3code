@@ -1,6 +1,7 @@
 import type { ComposerHandleRef } from "../../composerHandleContext";
 import type { BranchToolbarHandle } from "../BranchToolbar";
 import type { ChatComposerHandle } from "./ChatComposer";
+import { toggleComposerVimMode } from "./composerVimMode";
 import type { ChatShortcutCommands } from "./useChatShortcuts";
 
 const openControl =
@@ -9,7 +10,7 @@ const openControl =
     if (!event.repeat) composerRef.current?.openControl(control);
   };
 
-/** Chords that open or step the composer's controls and its branch toolbar. Held keys do not repeat them. */
+/** Chords for the composer's controls, vim mode and branch toolbar. Held keys do not repeat them. */
 export function composerShortcutCommands(
   composerRef: ComposerHandleRef,
   branchToolbarRef: { readonly current: BranchToolbarHandle | null },
@@ -33,6 +34,9 @@ export function composerShortcutCommands(
     },
     "composer.previousWorktree": ({ event }) => {
       if (!event.repeat) branchToolbarRef.current?.usePreviousWorktree();
+    },
+    "composer.toggleVimMode": ({ event }) => {
+      if (!event.repeat) toggleComposerVimMode();
     },
   } satisfies ChatShortcutCommands;
 }

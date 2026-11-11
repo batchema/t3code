@@ -1875,6 +1875,25 @@ code {
   margin-bottom: 0;
 }
 
+/* Vim normal mode draws a block over the character under the hidden caret. */
+.composer-tiptap[data-vim-mode="normal"] {
+  caret-color: transparent;
+}
+
+.composer-tiptap[data-vim-mode="normal"]:focus .composer-vim-cursor {
+  background-color: var(--color-foreground);
+  color: var(--color-background);
+}
+
+.composer-vim-cursor-empty {
+  display: inline-block;
+  min-width: 1ch;
+}
+
+.composer-tiptap:not(:focus) .composer-vim-cursor-empty {
+  display: none;
+}
+
 .chat-markdown p,
 .chat-markdown ul,
 .chat-markdown ol,

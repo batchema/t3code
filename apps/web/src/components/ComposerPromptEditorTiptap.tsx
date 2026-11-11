@@ -110,6 +110,14 @@ import {
   groupUndoByChangeKind,
   markAsClipboardEdit,
 } from "~/composer-undo-grouping";
+import { INITIAL_VIM_STATE, type VimMode, type VimState } from "~/composer-vim";
+import {
+  ComposerVimExtension,
+  type ComposerVimContext,
+  composerVimMode,
+  handleComposerVimKeyDown,
+  showComposerVimMode,
+} from "~/composer-vim-editor";
 import { collectInlineContextIds } from "~/lib/composerContextReferences";
 import { resolveDiffThemeName } from "~/lib/diffRendering";
 import { cn, isMacPlatform } from "~/lib/utils";
@@ -156,6 +164,9 @@ export interface ComposerPromptEditorProps {
   cursor: number;
   richTextEnabled?: boolean;
   literalText?: boolean;
+  vimEnabled?: boolean;
+  /** The vim mode after each change, or null while vim mode is off. */
+  onVimModeChange?: (mode: VimMode | null) => void;
   contextRecords: ComposerDraftContextRecords;
   buildContextClipboardFragment?:
     | ((contextIds: ReadonlyArray<string>) => string | null)
@@ -753,6 +764,8 @@ function replaceSkillChips(
 
 export function ComposerPromptEditorTiptap(props: ComposerPromptEditorProps) {
   const restoreFocusRef = useRef(false);
+  // Outlives the keyed editor so the mode and register survive switching drafts.
+  const vimStateRef = useRef<VimState>(INITIAL_VIM_STATE);
   const { onChange: onPromptChange } = props;
   const [selection, setSelection] = useState<{
     value: string;
@@ -775,6 +788,7 @@ export function ComposerPromptEditorTiptap(props: ComposerPromptEditorProps) {
       key={`${props.draftKey ?? ""}:${props.literalText ? "literal" : props.richTextEnabled ? "rich" : "plain"}`}
       {...props}
       restoreFocusRef={restoreFocusRef}
+      vimStateRef={vimStateRef}
       initialExpandedCursor={
         selection?.value === props.value && selection.cursor === props.cursor
           ? selection.expandedCursor
@@ -831,6 +845,7 @@ function createComposerExtensions(richText: boolean) {
     ComposerCitationExtension,
     ComposerContextReferenceExtension,
     ComposerChipSelectionExtension,
+    ComposerVimExtension,
     ...(richText
       ? [
           ComposerMarkdownSourceExtension,
@@ -915,6 +930,7 @@ function ComposerPromptEditorTiptapInner(
   props: ComposerPromptEditorProps & {
     initialExpandedCursor: number;
     restoreFocusRef: RefObject<boolean>;
+    vimStateRef: RefObject<VimState>;
   },
 ) {
   const {
@@ -947,6 +963,9 @@ function ComposerPromptEditorTiptapInner(
     onPaste,
     editorRef,
     restoreFocusRef,
+    vimEnabled = false,
+    onVimModeChange,
+    vimStateRef,
   } = props;
   const richText = !literalText && (richTextEnabled ?? false);
   const clampEditorCursor = (text: string, position: number) =>
@@ -967,6 +986,8 @@ function ComposerPromptEditorTiptapInner(
     onCommandKeyDown,
     isPathQueryActive,
     importContextFragment,
+    vimEnabled,
+    onVimModeChange,
   }));
 
   const { environmentId } = use(ComposerContextActionsContext);
@@ -1060,6 +1081,7 @@ function ComposerPromptEditorTiptapInner(
     const suppressTrigger =
       literalText ||
       inCodeBlock ||
+      composerVimMode(updated.state) === "normal" ||
       [updated.state.selection.$from.nodeBefore, updated.state.selection.$from.nodeAfter].some(
         (node) => node?.isInline && node.isAtom && !node.isText && node.type.name !== "hardBreak",
       );
@@ -1070,6 +1092,33 @@ function ComposerPromptEditorTiptapInner(
       suppressTrigger,
       contextIds,
     );
+  };
+
+  const vimContext: ComposerVimContext = {
+    state: vimStateRef,
+    onModeChange: (mode) => readCallbacks().onVimModeChange?.(mode),
+    commandKey: (key, event) => readCallbacks().onCommandKeyDown?.(key, event) ?? false,
+    insertNewline: (view) => {
+      const dispatch = (tr: Transaction) => view.dispatch(tr.scrollIntoView());
+      if (!selectionInOneCodeBlock(view.state) || !newlineInCode(view.state, dispatch)) {
+        insertComposerNewline(view, richText);
+      }
+    },
+    insertMarkdown: (view, markdown) => {
+      const instance = (view.dom as TiptapEditorHTMLElement).editor;
+      if (!instance) return;
+      const nested = ["listItem", "taskItem", "blockquote"].some((name) =>
+        hasAncestor(view.state.selection.$from, name),
+      );
+      insertMarkdownParagraphs(
+        markdown,
+        skillLabelFor,
+        { styling: richText, blocks: !nested, literalText, isKnownModel },
+        (content) => {
+          instance.chain().command(collapseShownMarkdownSource).insertContent(content).run();
+        },
+      );
+    },
   };
 
   const editorAttributes = {
@@ -1110,6 +1159,9 @@ function ComposerPromptEditorTiptapInner(
       editorProps: {
         attributes: editorAttributes,
         handleKeyDown: (view, event) => {
+          if (readCallbacks().vimEnabled && handleComposerVimKeyDown(view, event, vimContext)) {
+            return true;
+          }
           // In a right-to-left line the start is on the right.
           const backArrow = caretLineDirection(view.state) === "rtl" ? "ArrowRight" : "ArrowLeft";
           const boundary = event.metaKey
@@ -1287,34 +1339,7 @@ function ComposerPromptEditorTiptapInner(
               return true;
             }
             event.preventDefault();
-            if (
-              (isTaskItem || isListItem) &&
-              instance &&
-              splitOrLiftListItem(instance, collapseShownMarkdownSource)
-            ) {
-              return true;
-            }
-            if (
-              richText &&
-              instance &&
-              hasAncestor(view.state.selection.$from, "blockquote") &&
-              view.state.selection.$from.parent.content.size === 0 &&
-              instance.commands.lift("blockquote")
-            ) {
-              return true;
-            }
-            // Parse shown Markdown first, or the split leaves each half with one delimiter.
-            if (instance) {
-              return instance
-                .chain()
-                .command(collapseShownMarkdownSource)
-                .command(({ state, dispatch }) => splitBlockKeepMarks(state, dispatch))
-                .scrollIntoView()
-                .run();
-            }
-            return splitBlockKeepMarks(view.state, (tr) => {
-              view.dispatch(tr.scrollIntoView());
-            });
+            return insertComposerNewline(view, richText);
           }
           if (!handler) return false;
           const handled = handler(event.key, event);
@@ -1325,6 +1350,7 @@ function ComposerPromptEditorTiptapInner(
           return handled;
         },
         handleTextInput: (view, from, to, text) => {
+          if (composerVimMode(view.state) === "normal") return true;
           if (literalText || view.composing || text.length !== 1) return false;
           const closer = SURROUND_CLOSE[text];
           const { selection } = view.state;
@@ -1485,6 +1511,15 @@ function ComposerPromptEditorTiptapInner(
   useEffect(() => {
     editor?.setEditable(!disabled);
   }, [disabled, editor]);
+
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- mirrors the vim setting into the editor's plugin state and reports the mode to the indicator
+  useLayoutEffect(() => {
+    if (!editor) return;
+    if (!vimEnabled) vimStateRef.current = INITIAL_VIM_STATE;
+    const mode = vimEnabled ? vimStateRef.current.mode : null;
+    showComposerVimMode(editor.view, mode);
+    readCallbacks().onVimModeChange?.(mode);
+  }, [editor, readCallbacks, vimEnabled, vimStateRef]);
 
   // Push attributes before layout measurements; Tiptap updates them later in a passive effect.
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- pushes DOM attributes into the ProseMirror view before layout measurements read them
@@ -1866,6 +1901,36 @@ function ComposerPromptEditorTiptapInner(
       </ComposerContextRecordsContext>
     </RichComposerSkillsContext>
   );
+}
+
+/** Starts a new line at the selection, continuing or leaving a list or quote like Enter. */
+function insertComposerNewline(view: EditorView, richText: boolean): boolean {
+  const instance = (view.dom as TiptapEditorHTMLElement).editor;
+  const inList = richText && (instance?.isActive("taskItem") || instance?.isActive("listItem"));
+  if (inList && instance && splitOrLiftListItem(instance, collapseShownMarkdownSource)) {
+    return true;
+  }
+  if (
+    richText &&
+    instance &&
+    hasAncestor(view.state.selection.$from, "blockquote") &&
+    view.state.selection.$from.parent.content.size === 0 &&
+    instance.commands.lift("blockquote")
+  ) {
+    return true;
+  }
+  // Parse shown Markdown first, or the split leaves each half with one delimiter.
+  if (instance) {
+    return instance
+      .chain()
+      .command(collapseShownMarkdownSource)
+      .command(({ state, dispatch }) => splitBlockKeepMarks(state, dispatch))
+      .scrollIntoView()
+      .run();
+  }
+  return splitBlockKeepMarks(view.state, (tr) => {
+    view.dispatch(tr.scrollIntoView());
+  });
 }
 
 /** Split newlines into paragraphs; trailing hard breaks render no visible line. */
