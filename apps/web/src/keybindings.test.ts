@@ -17,6 +17,7 @@ import {
   isRichTextBoldShortcut,
   isTerminalNewShortcut,
   isTerminalSplitShortcut,
+  isTerminalToggleShortcut,
   resolveChatShortcutCommand,
   resolveShortcutCommand,
   shouldShowThreadJumpHintsForModifiers,
@@ -297,6 +298,36 @@ describe("split/new/close terminal shortcuts", () => {
         platform: "Win32",
         context: { terminalOpen: true, terminalFocus: false },
       }),
+    );
+  });
+
+  it("toggles with Ctrl+` on every platform, even from the terminal, labelled by mod+j", () => {
+    const backtick = { key: "`", code: "Backquote" };
+    // German layouts put a dead circumflex on the same physical key.
+    const germanBacktick = { key: "Dead", code: "Backquote" };
+    for (const platform of ["MacIntel", "Win32", "Linux"]) {
+      for (const terminalFocus of [false, true]) {
+        for (const keys of [backtick, germanBacktick]) {
+          assert.isTrue(
+            isTerminalToggleShortcut(
+              event({ ...keys, ctrlKey: true }),
+              DEFAULT_RESOLVED_KEYBINDINGS,
+              { platform, context: { terminalFocus } },
+            ),
+          );
+        }
+      }
+    }
+    assert.isFalse(
+      isTerminalToggleShortcut(
+        event({ ...backtick, metaKey: true }),
+        DEFAULT_RESOLVED_KEYBINDINGS,
+        { platform: "MacIntel" },
+      ),
+    );
+    assert.strictEqual(
+      shortcutLabelForCommand(DEFAULT_RESOLVED_KEYBINDINGS, "terminal.toggle", "MacIntel"),
+      "⌘J",
     );
   });
 });

@@ -112,6 +112,11 @@ const LATE_DEFAULT_KEYBINDINGS: ReadonlyArray<{
       when: "composerFocus && draftThreadRoute",
     },
   },
+  {
+    id: "terminal.toggle:ctrl+`",
+    alongside: { key: "mod+j", command: "terminal.toggle" },
+    rule: { key: "ctrl+`", command: "terminal.toggle" },
+  },
 ];
 
 function keybindingShortcutContext(rule: KeybindingRule): string | null {
