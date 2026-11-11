@@ -61,6 +61,16 @@ describe("KeybindingsSettings.logic", () => {
     );
   });
 
+  it("resets a customized shortcut to the default its command no longer has", () => {
+    const rows = buildKeybindingRows(
+      compileResolvedKeybindingsConfig([
+        { command: "terminal.toggle", key: "ctrl+`" },
+        { command: "terminal.toggle", key: "mod+shift+y" },
+      ]),
+    );
+    expect(rows.find((row) => row.key === "mod+shift+y")?.defaultKey).toBe("mod+j");
+  });
+
   it("captures platform-specific mod shortcuts", () => {
     expect(
       keybindingFromKeyboardEvent(

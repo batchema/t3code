@@ -152,27 +152,36 @@ function sourceForBinding(binding: ResolvedKeybindingRule): KeybindingSource {
 
 function defaultBindingForBinding(
   binding: ResolvedKeybindingRule,
+  boundIds: ReadonlySet<string>,
 ): ResolvedKeybindingRule | undefined {
-  const bindingKey = shortcutToKeybindingInput(binding.shortcut);
+  const id = bindingRowId(binding);
   const bindingWhen = whenAstToExpression(binding.whenAst);
+  const defaults = DEFAULT_RESOLVED_KEYBINDINGS.filter(
+    (entry) => entry.command === binding.command,
+  );
+  // Reset restores a default the command lost before one it still has.
+  const candidates = [
+    ...defaults.filter((entry) => !boundIds.has(bindingRowId(entry))),
+    ...defaults.filter((entry) => boundIds.has(bindingRowId(entry))),
+  ];
 
   return (
-    DEFAULT_RESOLVED_KEYBINDINGS.find(
-      (entry) =>
-        entry.command === binding.command &&
-        shortcutToKeybindingInput(entry.shortcut) === bindingKey &&
-        whenAstToExpression(entry.whenAst) === bindingWhen,
-    ) ??
-    DEFAULT_RESOLVED_KEYBINDINGS.find(
-      (entry) =>
-        entry.command === binding.command && whenAstToExpression(entry.whenAst) === bindingWhen,
-    ) ??
-    DEFAULT_RESOLVED_KEYBINDINGS.find((entry) => entry.command === binding.command)
+    defaults.find((entry) => bindingRowId(entry) === id) ??
+    candidates.find((entry) => whenAstToExpression(entry.whenAst) === bindingWhen) ??
+    candidates[0]
   );
 }
 
 function keybindingRowId(command: KeybindingCommand, key: string, when: string): string {
   return `${command}\u0000${key}\u0000${when}`;
+}
+
+function bindingRowId(binding: ResolvedKeybindingRule): string {
+  return keybindingRowId(
+    binding.command,
+    shortcutToKeybindingInput(binding.shortcut),
+    whenAstToExpression(binding.whenAst),
+  );
 }
 
 function conflictsWithWhen(leftWhen: string, rightWhen: string): boolean {
@@ -252,8 +261,9 @@ export function buildKeybindingRows(
   platform = navigator.platform,
 ): ReadonlyArray<KeybindingRow> {
   const rowsById = new Map<string, KeybindingRow>();
+  const boundIds = new Set(keybindings.map(bindingRowId));
   for (const binding of keybindings) {
-    const defaultBinding = defaultBindingForBinding(binding);
+    const defaultBinding = defaultBindingForBinding(binding, boundIds);
     const key = shortcutToKeybindingInput(binding.shortcut);
     const when = whenAstToExpression(binding.whenAst);
     const id = keybindingRowId(binding.command, key, when);

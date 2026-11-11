@@ -51,6 +51,13 @@ on macOS and Ctrl on Windows and Linux, including GNOME, KDE Plasma, Niri, and
 Hyprland. If a custom desktop shortcut takes the same keys, choose another binding
 in Settings.
 
+## Toggle the terminal
+
+`mod+j` and ``ctrl+` `` open and close the terminal drawer, even while the terminal
+has focus. Like VS Code, ``ctrl+` `` uses Control on every platform, including macOS.
+If you changed the terminal shortcut earlier, T3 Code leaves it alone and does not
+add ``ctrl+` ``; add it under **Terminal: Toggle** in Keybindings.
+
 ## Copy pull request references
 
 With a PR open in the right panel or on the Pull requests page, use `mod+shift+c`

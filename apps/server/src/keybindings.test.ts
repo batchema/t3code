@@ -229,11 +229,9 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
         const persisted = yield* readKeybindingsConfig(keybindingsConfigPath);
         const byCommand = new Map(persisted.map((entry) => [entry.command, entry]));
 
-        const persistedToggle = byCommand.get("terminal.toggle");
-        assert.isNotNull(persistedToggle);
-        assert.equal(persistedToggle?.key, "mod+shift+y");
-        assert.isFalse(
-          persisted.some((entry) => entry.command === "terminal.toggle" && entry.key === "mod+j"),
+        assert.deepStrictEqual(
+          persisted.filter((entry) => entry.command === "terminal.toggle"),
+          [{ key: "mod+shift+y", command: "terminal.toggle" }],
         );
 
         for (const defaultRule of SharedKeybindings.DEFAULT_KEYBINDINGS) {
@@ -256,21 +254,26 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
       const { keybindingsConfigPath } = yield* ServerConfig.ServerConfig;
       const keybindings = yield* Keybindings.Keybindings;
       const when = "composerFocus && draftThreadRoute";
-      const existing = { key: "mod+alt+enter", command: "composer.sendBackground", when } as const;
-      const backgroundRules = Effect.map(readKeybindingsConfig(keybindingsConfigPath), (rules) =>
-        rules.filter((entry) => entry.command === "composer.sendBackground"),
+      const existing: KeybindingRule[] = [
+        { key: "mod+alt+enter", command: "composer.sendBackground", when },
+        { key: "mod+j", command: "terminal.toggle" },
+      ];
+      const lateCommands = new Set(existing.map((entry) => entry.command));
+      const lateRules = Effect.map(readKeybindingsConfig(keybindingsConfigPath), (rules) =>
+        rules.filter((entry) => lateCommands.has(entry.command)),
       );
-      yield* writeKeybindingsConfig(keybindingsConfigPath, [existing]);
+      yield* writeKeybindingsConfig(keybindingsConfigPath, existing);
 
       yield* keybindings.syncDefaultKeybindingsOnStartup;
-      assert.deepStrictEqual(yield* backgroundRules, [
+      assert.deepStrictEqual(yield* lateRules, [
         { key: "mod+enter", command: "composer.sendBackground", when },
-        existing,
+        { key: "ctrl+`", command: "terminal.toggle" },
+        ...existing,
       ]);
 
-      yield* writeKeybindingsConfig(keybindingsConfigPath, [existing]);
+      yield* writeKeybindingsConfig(keybindingsConfigPath, existing);
       yield* keybindings.syncDefaultKeybindingsOnStartup;
-      assert.deepStrictEqual(yield* backgroundRules, [existing]);
+      assert.deepStrictEqual(yield* lateRules, existing);
     }).pipe(Effect.provide(layerKeybindings())),
   );
 
@@ -338,7 +341,10 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
       });
 
       const persisted = yield* readKeybindingsConfig(keybindingsConfigPath);
-      assert.isFalse(persisted.some((entry) => entry.command === "terminal.toggle"));
+      assert.deepStrictEqual(
+        persisted.filter((entry) => entry.command === "terminal.toggle"),
+        [{ key: "ctrl+`", command: "terminal.toggle" }],
+      );
       assert.isTrue(persisted.some((entry) => entry.command === "script.custom-action.run"));
 
       assert.isTrue(
