@@ -1,9 +1,9 @@
 # TODO
 
-- [ ] **Vim motions in the composer.** An opt-in vim mode for the chat input, like Claude Code's
+- [x] **Vim motions in the composer.** An opt-in vim mode for the chat input, like Claude Code's
       `/vim`: normal and insert modes, common motions (`hjkl`, `w`/`b`/`e`, `0`/`$`, `gg`/`G`),
       operators (`d`, `c`, `y`) with motions and text objects, and a visible mode indicator.
-- [ ] **`ctrl+`` toggles the terminal.** Match VS Code: `ctrl+`` opens and closes the terminal
+- [x] **`ctrl+`` toggles the terminal.** Match VS Code: `ctrl+`` opens and closes the terminal
       drawer, alongside the existing `mod+j`, including while the terminal has focus.
 - [ ] **Setting to hide thread details by default.** New threads always open the Thread Details
       card because `inlineOpen: true` is hardcoded in `apps/web/src/rightPanelStore.ts`. Add a
