@@ -179,17 +179,26 @@ function encodeShortcut(shortcut: KeybindingShortcut): string | null {
   return [...modifiers, key].join("+");
 }
 
+// Parenthesizes only where the parser needs it to rebuild the same tree, so a rule read back fits
+// the length limit its stored form did: `&&` binds tighter than `||`, and both group left to right.
 function encodeWhenAst(node: KeybindingWhenNode): string {
   switch (node.type) {
     case "identifier":
       return node.name;
     case "not":
-      return `!(${encodeWhenAst(node.node)})`;
+      return `!${encodeWhenOperand(node.node, ["identifier", "not"])}`;
     case "and":
-      return `(${encodeWhenAst(node.left)} && ${encodeWhenAst(node.right)})`;
+      return `${encodeWhenOperand(node.left, ["identifier", "not", "and"])} && ${encodeWhenOperand(node.right, ["identifier", "not"])}`;
     case "or":
-      return `(${encodeWhenAst(node.left)} || ${encodeWhenAst(node.right)})`;
+      return `${encodeWhenAst(node.left)} || ${encodeWhenOperand(node.right, ["identifier", "not", "and"])}`;
   }
+}
+
+function encodeWhenOperand(
+  node: KeybindingWhenNode,
+  bare: ReadonlyArray<KeybindingWhenNode["type"]>,
+): string {
+  return bare.includes(node.type) ? encodeWhenAst(node) : `(${encodeWhenAst(node)})`;
 }
 
 const RawKeybindingsEntries = fromLenientJson(Schema.Array(Schema.Unknown));

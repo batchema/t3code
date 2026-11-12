@@ -102,6 +102,26 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
     }),
   );
 
+  it.effect("writes a rule's condition back with only the parentheses its meaning needs", () =>
+    Effect.sync(() => {
+      for (const [when, expected] of [
+        ["a && b && c", "a && b && c"],
+        ["a && (b && c)", "a && (b && c)"],
+        ["a || b && c", "a || b && c"],
+        ["(a || b) && !c", "(a || b) && !c"],
+        ["!(a && b) || !!c", "!(a && b) || !!c"],
+        ["((a))", "a"],
+      ] as const) {
+        const rule = { key: "mod+k", command: "terminal.toggle" as const, when };
+        const resolved = SharedKeybindings.compileResolvedKeybindingRule(rule);
+        assert.ok(resolved);
+        const text = Keybindings.keybindingRuleText(resolved);
+        assert.equal(text.when, expected);
+        assert.deepEqual(SharedKeybindings.compileResolvedKeybindingRule(text), resolved);
+      }
+    }),
+  );
+
   it.effect("rejects invalid rules", () =>
     Effect.sync(() => {
       assert.isNull(

@@ -196,3 +196,25 @@ it.effect("lets agents give up browser and device access but not take back a den
     }).pipe(Effect.provide(layer));
   }),
 );
+
+it.effect("lists every loaded shortcut in a form that writes back", () =>
+  Effect.gen(function* () {
+    const { writes, layer } = yield* makeLayer();
+    yield* Effect.gen(function* () {
+      const read = yield* call("t3_keybindings_read", {});
+      const listed = (read as { keybindings: ReadonlyArray<typeof longRule> }).keybindings;
+      expect(listed.find((rule) => rule.key === longRule.key)).toEqual(longRule);
+      expect(
+        yield* call("t3_keybinding_upsert", { ...longRule, key: "mod+alt+j", replace: longRule }),
+      ).toHaveProperty("keybindings");
+      expect(
+        yield* call("t3_keybinding_remove", {
+          key: "MOD+SHIFT+B",
+          command: "threadPanel.toggle",
+          when: "!terminalFocus",
+        }),
+      ).toHaveProperty("keybindings");
+      expect(yield* Ref.get(writes)).toBe(2);
+    }).pipe(Effect.provide(layer));
+  }),
+);
