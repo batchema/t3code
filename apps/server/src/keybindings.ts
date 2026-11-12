@@ -90,7 +90,7 @@ function keybindingRuleIdentity(rule: KeybindingRule): string {
   return JSON.stringify([rule.command, key, whenAst ? encodeWhenAst(whenAst) : rule.when]);
 }
 
-function isSameKeybindingRule(left: KeybindingRule, right: KeybindingRule): boolean {
+export function isSameKeybindingRule(left: KeybindingRule, right: KeybindingRule): boolean {
   return keybindingRuleIdentity(left) === keybindingRuleIdentity(right);
 }
 

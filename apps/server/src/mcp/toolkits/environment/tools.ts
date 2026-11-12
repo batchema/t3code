@@ -1,15 +1,14 @@
 import {
-  BackgroundActivityProfile,
   BackgroundActivityProfileSelection,
   ExecutionEnvironmentDescriptor,
   OrchestratorMcpEnvironmentTarget,
   OrchestratorMcpFailure,
   ServerSettings,
-  ServerSettingsPatch,
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 import { Tool, Toolkit } from "effect/ai";
 import * as ServerEnvironment from "../../../environment/ServerEnvironment.ts";
+import * as Keybindings from "../../../keybindings.ts";
 import * as ThreadCommandExecutor from "../../../orchestration-v2/ThreadCommandExecutor.ts";
 import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
 import * as Settings from "../../../serverSettings.ts";
@@ -35,9 +34,25 @@ const shared = {
     ThreadManagementService.ThreadManagementService,
     ServerEnvironment.ServerEnvironment,
     Settings.ServerSettingsService,
+    Keybindings.Keybindings,
     ThreadCommandExecutor.ThreadCommandExecutor,
   ],
 };
+// Settings and keybindings travel as plain JSON; their full schemas would bloat every tool list.
+const SettingsObject = Schema.Record(Schema.String, Schema.Unknown);
+const KeybindingFields = {
+  key: Schema.String.annotate({
+    description: 'e.g. "mod+shift+k"; mod is cmd on macOS, ctrl elsewhere.',
+  }),
+  command: Schema.String.annotate({ description: "From `t3_keybindings_read`." }),
+  when: Schema.optionalKey(Schema.String.annotate({ description: 'e.g. "!terminalFocus".' })),
+};
+const KeybindingRuleView = Schema.Struct({
+  key: Schema.String,
+  command: Schema.String,
+  when: Schema.optionalKey(Schema.String),
+});
+
 const EnvironmentReadTool = Tool.make("t3_environment_read", {
   ...shared,
   description:
@@ -53,18 +68,66 @@ const EnvironmentReadTool = Tool.make("t3_environment_read", {
 })
   .annotate(Tool.Readonly, true)
   .annotate(Tool.Destructive, false);
-const EnvironmentPreferencesTool = Tool.make("t3_environment_preferences_update", {
+const SettingsReadTool = Tool.make("t3_environment_settings_read", {
   ...shared,
   description:
-    "Update environment-wide preferences. Live full-access or default caller thread only. Omitted fields are unchanged; `customInstructions: ''` clears it.",
+    "Read this server's settings, as on the Settings page. Secrets come back redacted. Pass `keys` to read only some.",
   parameters: Schema.Struct({
     environmentId: OrchestratorMcpEnvironmentTarget,
-    defaultThreadEnvMode: ServerSettingsPatch.fields.defaultThreadEnvMode,
-    newWorktreesStartFromOrigin: ServerSettingsPatch.fields.newWorktreesStartFromOrigin,
-    enableProviderUpdateChecks: ServerSettingsPatch.fields.enableProviderUpdateChecks,
-    backgroundActivity: Schema.optionalKey(Schema.Struct({ profile: BackgroundActivityProfile })),
-    sourceControlWritingStyle: ServerSettingsPatch.fields.sourceControlWritingStyle,
+    keys: Schema.optionalKey(Schema.Array(Schema.String)),
   }),
-  success: Schema.Struct(PreferenceFields),
+  success: Schema.Struct({ settings: SettingsObject }),
+})
+  .annotate(Tool.Readonly, true)
+  .annotate(Tool.Destructive, false);
+const SettingsUpdateTool = Tool.make("t3_environment_settings_update", {
+  ...shared,
+  description:
+    "Change this server's settings. `patch` uses the keys and shapes of `t3_environment_settings_read`; omitted keys are unchanged. Live full-access or default caller thread only. Agent browser and device access stay the user's to grant.",
+  parameters: Schema.Struct({
+    environmentId: OrchestratorMcpEnvironmentTarget,
+    patch: SettingsObject,
+  }),
+  success: Schema.Struct({ settings: SettingsObject }),
 }).annotate(Tool.Destructive, true);
-export const EnvironmentToolkit = Toolkit.make(EnvironmentReadTool, EnvironmentPreferencesTool);
+const KeybindingsReadTool = Tool.make("t3_keybindings_read", {
+  ...shared,
+  description: "List this server's keyboard shortcuts and every command a shortcut can run.",
+  parameters: Schema.Struct({ environmentId: OrchestratorMcpEnvironmentTarget }),
+  success: Schema.Struct({
+    keybindings: Schema.Array(KeybindingRuleView),
+    commands: Schema.Array(Schema.String),
+    issues: Schema.Array(Schema.String),
+  }),
+})
+  .annotate(Tool.Readonly, true)
+  .annotate(Tool.Destructive, false);
+const KeybindingUpsertTool = Tool.make("t3_keybinding_upsert", {
+  ...shared,
+  description:
+    "Add a keyboard shortcut, or change one by passing the current binding as `replace`. Live full-access or default caller thread only.",
+  parameters: Schema.Struct({
+    environmentId: OrchestratorMcpEnvironmentTarget,
+    ...KeybindingFields,
+    replace: Schema.optionalKey(Schema.Struct(KeybindingFields)),
+  }),
+  success: Schema.Struct({ keybindings: Schema.Array(KeybindingRuleView) }),
+}).annotate(Tool.Destructive, true);
+const KeybindingRemoveTool = Tool.make("t3_keybinding_remove", {
+  ...shared,
+  description:
+    "Remove a keyboard shortcut, matched exactly as `t3_keybindings_read` lists it. Live full-access or default caller thread only.",
+  parameters: Schema.Struct({
+    environmentId: OrchestratorMcpEnvironmentTarget,
+    ...KeybindingFields,
+  }),
+  success: Schema.Struct({ keybindings: Schema.Array(KeybindingRuleView) }),
+}).annotate(Tool.Destructive, true);
+export const EnvironmentToolkit = Toolkit.make(
+  EnvironmentReadTool,
+  SettingsReadTool,
+  SettingsUpdateTool,
+  KeybindingsReadTool,
+  KeybindingUpsertTool,
+  KeybindingRemoveTool,
+);

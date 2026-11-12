@@ -350,10 +350,10 @@ export function summarizeT3ToolCalls(
       );
       break;
     case "environment-read":
-      label = phrase("Checked", "check", `environment preferences ${times}`);
+      label = phrase("Checked", "check", `environment settings ${times}`);
       break;
     case "environment-update":
-      label = phrase("Updated", "update", `environment preferences ${times}`);
+      label = phrase("Updated", "update", `environment settings ${times}`);
       break;
     case "environment-links":
       label = phrase("Listed", "list", `linked environments ${times}`);
