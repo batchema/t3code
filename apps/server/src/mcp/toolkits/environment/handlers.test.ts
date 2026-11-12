@@ -2,11 +2,13 @@ import { expect, it } from "@effect/vitest";
 import {
   DEFAULT_SERVER_SETTINGS,
   EnvironmentId,
+  ProjectId,
   ProviderInstanceId,
   ThreadId,
   type OrchestrationV2ThreadShell,
+  type ServerSettings,
 } from "@t3tools/contracts";
-import { DEFAULT_RESOLVED_KEYBINDINGS } from "@t3tools/shared/keybindings";
+import { compileResolvedKeybindingsConfig, DEFAULT_KEYBINDINGS } from "@t3tools/shared/keybindings";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
@@ -28,11 +30,25 @@ import { EnvironmentToolkit } from "./tools.ts";
 const environmentId = EnvironmentId.make("environment:preferences");
 const threadId = ThreadId.make("thread:preferences");
 
-const makeLayer = Effect.fn(function* (onGetThreadShell: Effect.Effect<void> = Effect.void) {
+const projectId = ProjectId.make("project:preferences");
+// Valid at the 256-character limit; a fully parenthesized re-encoding would exceed it.
+const longWhen = Array.from({ length: 15 }, () => "terminalFocus").join(" && ");
+const longRule = { key: "mod+alt+k", command: "terminal.toggle" as const, when: longWhen };
+
+const makeLayer = Effect.fn(function* (
+  options: {
+    readonly onGetThreadShell?: Effect.Effect<void>;
+    readonly settings?: ServerSettings;
+  } = {},
+) {
+  const { onGetThreadShell = Effect.void, settings = DEFAULT_SERVER_SETTINGS } = options;
   const caller = yield* Ref.make<OrchestrationV2ThreadShell>(liveThreadShell(threadId));
   const writes = yield* Ref.make(0);
   const write = <A>(value: A) => Ref.update(writes, (count) => count + 1).pipe(Effect.as(value));
-  const snapshot = { keybindings: DEFAULT_RESOLVED_KEYBINDINGS, issues: [] };
+  const snapshot = {
+    keybindings: compileResolvedKeybindingsConfig([...DEFAULT_KEYBINDINGS, longRule]),
+    issues: [],
+  };
   const layer = McpToolAccess.HandlersLayer.layer(EnvironmentHandlers.layer).pipe(
     Layer.provideMerge(
       Layer.mergeAll(
@@ -62,8 +78,8 @@ const makeLayer = Effect.fn(function* (onGetThreadShell: Effect.Effect<void> = E
           }),
         }),
         Layer.mock(Settings.ServerSettingsService)({
-          getSettings: Effect.succeed(DEFAULT_SERVER_SETTINGS),
-          updateSettings: () => write(DEFAULT_SERVER_SETTINGS),
+          getSettings: Effect.succeed(settings),
+          updateSettings: () => write(settings),
         }),
         Layer.mock(Keybindings.Keybindings)({
           getSnapshot: Effect.succeed(snapshot),
@@ -87,7 +103,9 @@ const call = (...[name, params]: Parameters<Effect.Success<typeof EnvironmentToo
 it.effect("refuses a settings update when the caller's turn ends while it waits", () =>
   Effect.gen(function* () {
     const checked = yield* Deferred.make<void>();
-    const { caller, writes, layer } = yield* makeLayer(Deferred.succeed(checked, undefined));
+    const { caller, writes, layer } = yield* makeLayer({
+      onGetThreadShell: Deferred.succeed(checked, undefined),
+    });
     yield* Effect.gen(function* () {
       const executor = yield* ThreadCommandExecutor.ThreadCommandExecutor;
       const held = yield* Deferred.make<void>();
@@ -120,6 +138,12 @@ it.effect("refuses settings and shortcuts agents may not or cannot write", () =>
         call("t3_environment_settings_update", { patch: { enableAgentDeviceAccess: true } }),
         "capability_denied",
       ],
+      [
+        call("t3_environment_settings_update", {
+          patch: { projectSettingsOverrides: { [projectId]: { enableAgentDeviceAccess: true } } },
+        }),
+        "capability_denied",
+      ],
       [call("t3_environment_settings_update", { patch: { notASetting: true } }), "invalid_request"],
       [
         call("t3_environment_settings_update", { patch: { linkedEnvironmentsEnabled: "yes" } }),
@@ -144,17 +168,52 @@ it.effect("refuses settings and shortcuts agents may not or cannot write", () =>
   }),
 );
 
-it.effect("matches a shortcut to remove however its rule is spelled", () =>
+it.effect("lets agents give up browser and device access but not take back a denial", () =>
+  Effect.gen(function* () {
+    const { writes, layer } = yield* makeLayer({
+      settings: {
+        ...DEFAULT_SERVER_SETTINGS,
+        enableAgentBrowserAccess: true,
+        projectSettingsOverrides: { [projectId]: { enableAgentBrowserAccess: false } },
+      },
+    });
+    yield* Effect.gen(function* () {
+      for (const entry of [null, {}])
+        expect(
+          yield* call("t3_environment_settings_update", {
+            patch: { projectSettingsOverrides: { [projectId]: entry } },
+          }),
+        ).toMatchObject({ code: "capability_denied" });
+      expect(yield* Ref.get(writes)).toBe(0);
+      expect(
+        yield* call("t3_environment_settings_update", {
+          patch: { enableAgentBrowserAccess: false },
+        }),
+      ).toHaveProperty("settings");
+      expect(yield* Ref.get(writes)).toBe(1);
+    }).pipe(Effect.provide(layer));
+  }),
+);
+
+it.effect("lists every loaded shortcut and removes one however its rule is spelled", () =>
   Effect.gen(function* () {
     const { writes, layer } = yield* makeLayer();
     yield* Effect.gen(function* () {
-      const result = yield* call("t3_keybinding_remove", {
-        key: "MOD+SHIFT+B",
-        command: "threadPanel.toggle",
-        when: "!terminalFocus",
-      });
-      expect(result).toHaveProperty("keybindings");
-      expect(yield* Ref.get(writes)).toBe(1);
+      const read = yield* call("t3_keybindings_read", {});
+      const listed = (read as { keybindings: ReadonlyArray<{ when?: string }> }).keybindings;
+      const long = listed.find((rule) => rule.when?.includes("terminalFocus && terminalFocus"));
+      expect(long).toBeDefined();
+      expect(yield* call("t3_keybinding_remove", { ...longRule, ...long })).toHaveProperty(
+        "keybindings",
+      );
+      expect(
+        yield* call("t3_keybinding_remove", {
+          key: "MOD+SHIFT+B",
+          command: "threadPanel.toggle",
+          when: "!terminalFocus",
+        }),
+      ).toHaveProperty("keybindings");
+      expect(yield* Ref.get(writes)).toBe(2);
     }).pipe(Effect.provide(layer));
   }),
 );

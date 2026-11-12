@@ -1,10 +1,15 @@
 import {
+  KeybindingRule,
   OrchestratorMcpFailure,
+  ProjectId,
   ServerSettings,
   ServerSettingsPatch,
   STATIC_KEYBINDING_COMMANDS,
   type ResolvedKeybindingsConfig,
 } from "@t3tools/contracts";
+import { compileResolvedKeybindingRule } from "@t3tools/shared/keybindings";
+import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
+import { applyServerSettingsPatch } from "@t3tools/shared/serverSettings";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import * as Environment from "../../../environment/ServerEnvironment.ts";
@@ -38,14 +43,6 @@ export function preferences(settings: ServerSettings) {
   };
 }
 
-// The user grants agents these; an agent must not grant them to itself. Device hosts also need
-// the local-host filtering only the RPC path applies.
-const USER_ONLY_SETTINGS = new Set([
-  "enableAgentBrowserAccess",
-  "enableAgentDeviceAccess",
-  "projectAgentBrowserAccessOverrides",
-  "deviceHosts",
-]);
 const SETTINGS_KEYS = new Set(Object.keys(ServerSettings.fields));
 const PATCH_KEYS = new Set(Object.keys(ServerSettingsPatch.fields));
 
@@ -53,8 +50,7 @@ const invalid = (message: string) =>
   new OrchestratorMcpFailure({ code: "invalid_request", message });
 const decodePatch = Schema.decodeUnknownEffect(ServerSettingsPatch);
 const encodeSettings = Schema.encodeEffect(ServerSettings);
-const decodeKeybinding = Schema.decodeUnknownEffect(Keybindings.ResolvedKeybindingFromConfig);
-const encodeKeybinding = Schema.encodeEffect(Keybindings.ResolvedKeybindingFromConfig);
+const decodeKeybinding = Schema.decodeUnknownEffect(KeybindingRule);
 
 const settingsView = (settings: ServerSettings, keys: ReadonlyArray<string> | undefined) =>
   encodeSettings(Settings.redactServerSettingsForClient(settings, { secretReferences: true })).pipe(
@@ -66,23 +62,43 @@ const settingsView = (settings: ServerSettings, keys: ReadonlyArray<string> | un
     ),
   );
 
+/** Whether `next` lets agents use the browser or a device anywhere `current` did not. */
+function grantsAgentAccess(current: ServerSettings, next: ServerSettings): boolean {
+  const access = (settings: ServerSettings, projectId: ProjectId | null) => {
+    const resolved = resolveProjectSettings(settings, projectId).settings;
+    return [resolved.enableAgentBrowserAccess, resolved.enableAgentDeviceAccess];
+  };
+  const projectIds = new Set([
+    ...Object.keys(current.projectSettingsOverrides),
+    ...Object.keys(next.projectSettingsOverrides),
+  ]);
+  return [null, ...[...projectIds].map((id) => ProjectId.make(id))].some((projectId) => {
+    const before = access(current, projectId);
+    return access(next, projectId).some((granted, index) => granted && !before[index]);
+  });
+}
+
 const keybindingsView = (keybindings: ResolvedKeybindingsConfig) =>
-  Effect.forEach(keybindings, (rule) =>
-    encodeKeybinding(rule).pipe(Effect.mapError(unavailable)),
-  ).pipe(
-    Effect.map((rules) =>
-      rules.map(({ key, command, when }) =>
-        when === undefined ? { key, command } : { key, command, when },
-      ),
+  keybindings.map(Keybindings.keybindingRuleText);
+
+/** Rejects a rule the service would store as a broken entry, as the Settings page path does. */
+const validRule = (input: unknown) =>
+  decodeKeybinding(input).pipe(
+    Effect.mapError((error) => invalid(`Invalid shortcut: ${error.message}`)),
+    Effect.filterOrFail(
+      (rule) => compileResolvedKeybindingRule(rule) !== null,
+      () => invalid("Invalid shortcut: the key or `when` does not parse."),
     ),
   );
 
-/** Rejects what the service would store as a broken entry, and returns the canonical spelling. */
-const canonicalRule = (input: { key: string; command: string; when?: string }) =>
-  decodeKeybinding(input).pipe(
-    Effect.mapError((error) => invalid(`Invalid shortcut: ${error.message}`)),
-    Effect.flatMap((resolved) => encodeKeybinding(resolved).pipe(Effect.mapError(unavailable))),
-  );
+/** The listed rule a replace or remove target names, however the agent spelled it. */
+const listedRule = (
+  keybindings: ResolvedKeybindingsConfig,
+  target: { readonly key: string; readonly command: string; readonly when?: string | undefined },
+) =>
+  Effect.fromNullishOr(
+    keybindingsView(keybindings).find((rule) => Keybindings.isSameKeybindingRule(rule, target)),
+  ).pipe(Effect.mapError(() => invalid("No such shortcut. `t3_keybindings_read` lists them.")));
 
 const access = Effect.gen(function* () {
   const context = yield* readCaller();
@@ -145,11 +161,11 @@ export const layer = McpToolAccess.toLayer(EnvironmentToolkit, {
       const unknown = keys.filter((key) => !PATCH_KEYS.has(key));
       if (unknown.length > 0)
         return yield* invalid(`Unknown or read-only settings: ${unknown.join(", ")}.`);
-      const userOnly = keys.filter((key) => USER_ONLY_SETTINGS.has(key));
-      if (userOnly.length > 0)
+      // Device hosts need the local-host filtering only the RPC path applies.
+      if (keys.includes("deviceHosts"))
         return yield* new OrchestratorMcpFailure({
           code: "capability_denied",
-          message: `Only the user can change ${userOnly.join(", ")}, in Settings.`,
+          message: "Only the user can change deviceHosts, in Settings.",
         });
       const decoded = yield* decodePatch(patch).pipe(
         Effect.mapError((error) => invalid(`Invalid settings: ${error.message}`)),
@@ -158,6 +174,12 @@ export const layer = McpToolAccess.toLayer(EnvironmentToolkit, {
         check,
         Effect.gen(function* () {
           const { settings } = yield* access;
+          const current = yield* settings.getSettings.pipe(Effect.mapError(unavailable));
+          if (grantsAgentAccess(current, applyServerSettingsPatch(current, decoded)))
+            return yield* new OrchestratorMcpFailure({
+              code: "capability_denied",
+              message: "Only the user can grant agents browser or device access, in Settings.",
+            });
           const next = yield* settings.updateSettings(decoded).pipe(Effect.mapError(unavailable));
           return { settings: yield* settingsView(next, keys) };
         }),
@@ -169,7 +191,7 @@ export const layer = McpToolAccess.toLayer(EnvironmentToolkit, {
       const { keybindings } = yield* access;
       const snapshot = yield* keybindings.getSnapshot.pipe(Effect.mapError(unavailable));
       return {
-        keybindings: yield* keybindingsView(snapshot.keybindings),
+        keybindings: keybindingsView(snapshot.keybindings),
         commands: [...STATIC_KEYBINDING_COMMANDS],
         issues: snapshot.issues.map((issue) => issue.message),
       };
@@ -177,18 +199,20 @@ export const layer = McpToolAccess.toLayer(EnvironmentToolkit, {
   ),
   t3_keybinding_upsert: McpToolAccess.writesEnvironment(({ replace, ...input }, check) =>
     Effect.gen(function* () {
-      const rule = yield* canonicalRule(input);
-      const target = replace === undefined ? undefined : yield* canonicalRule(replace);
+      const rule = yield* validRule(input);
       return yield* writeLocked(
         check,
         Effect.gen(function* () {
           const { keybindings } = yield* access;
+          const current = yield* keybindings.getSnapshot.pipe(Effect.mapError(unavailable));
+          const target =
+            replace === undefined ? undefined : yield* listedRule(current.keybindings, replace);
           const next = yield* keybindings
             .upsertKeybindingRule(target ? { ...rule, replace: target } : rule)
             .pipe(Effect.mapError(unavailable));
           const commands = new Set([rule.command, target?.command]);
           return {
-            keybindings: yield* keybindingsView(
+            keybindings: keybindingsView(
               next.keybindings.filter((binding) => commands.has(binding.command)),
             ),
           };
@@ -197,26 +221,21 @@ export const layer = McpToolAccess.toLayer(EnvironmentToolkit, {
     }),
   ),
   t3_keybinding_remove: McpToolAccess.writesEnvironment((input, check) =>
-    Effect.gen(function* () {
-      const target = yield* canonicalRule(input);
-      return yield* writeLocked(
-        check,
-        Effect.gen(function* () {
-          const { keybindings } = yield* access;
-          const current = yield* keybindings.getSnapshot.pipe(Effect.mapError(unavailable));
-          const listed = yield* keybindingsView(current.keybindings);
-          if (!listed.some((rule) => Keybindings.isSameKeybindingRule(rule, target)))
-            return yield* invalid("No such shortcut. `t3_keybindings_read` lists them.");
-          const next = yield* keybindings
-            .removeKeybindingRule(target)
-            .pipe(Effect.mapError(unavailable));
-          return {
-            keybindings: yield* keybindingsView(
-              next.keybindings.filter((binding) => binding.command === target.command),
-            ),
-          };
-        }),
-      );
-    }),
+    writeLocked(
+      check,
+      Effect.gen(function* () {
+        const { keybindings } = yield* access;
+        const current = yield* keybindings.getSnapshot.pipe(Effect.mapError(unavailable));
+        const target = yield* listedRule(current.keybindings, input);
+        const next = yield* keybindings
+          .removeKeybindingRule(target)
+          .pipe(Effect.mapError(unavailable));
+        return {
+          keybindings: keybindingsView(
+            next.keybindings.filter((binding) => binding.command === target.command),
+          ),
+        };
+      }),
+    ),
   ),
 });
