@@ -262,9 +262,11 @@ export class ServerSettingsService extends Context.Service<
 
     readonly getSettings: Effect.Effect<ServerSettings, ServerSettingsError>;
 
-    readonly updateSettings: (
+    /** `check` runs in the write lock on the settings the patch applies to; failing it aborts the write. */
+    readonly updateSettings: <E = never>(
       patch: ServerSettingsPatch,
-    ) => Effect.Effect<ServerSettings, ServerSettingsError>;
+      check?: (current: ServerSettings, next: ServerSettings) => Effect.Effect<void, E>,
+    ) => Effect.Effect<ServerSettings, ServerSettingsError | NoInfer<E>>;
 
     readonly updateProviderInstance: (
       mutation: ProviderInstanceMutation,
@@ -307,9 +309,9 @@ const makeTest = Effect.fn("serverSettings.makeTest")(function* (
   const writeSemaphore = yield* Semaphore.make(1);
   const getSettings = Ref.get(currentSettingsRef).pipe(Effect.map(resolveTextGenerationProvider));
 
-  const updateTestSettings = (
-    update: (current: ServerSettings) => Effect.Effect<ServerSettings, ServerSettingsError>,
-  ): Effect.Effect<ServerSettings, ServerSettingsError> =>
+  const updateTestSettings = <E = never>(
+    update: (current: ServerSettings) => Effect.Effect<ServerSettings, ServerSettingsError | E>,
+  ): Effect.Effect<ServerSettings, ServerSettingsError | E> =>
     writeSemaphore.withPermits(1)(
       Ref.get(currentSettingsRef).pipe(
         Effect.flatMap(update),
@@ -324,10 +326,11 @@ const makeTest = Effect.fn("serverSettings.makeTest")(function* (
     start: Effect.void,
     ready: Effect.void,
     getSettings,
-    updateSettings: (patch) =>
-      updateTestSettings((currentSettings) =>
-        Effect.succeed(applyServerSettingsPatch(currentSettings, patch)),
-      ),
+    updateSettings: (patch, check) =>
+      updateTestSettings((currentSettings) => {
+        const next = applyServerSettingsPatch(currentSettings, patch);
+        return (check?.(currentSettings, next) ?? Effect.void).pipe(Effect.as(next));
+      }),
     updateProviderInstance: (mutation, patch = {}) =>
       updateTestSettings((currentSettings) =>
         Effect.gen(function* () {
@@ -1183,10 +1186,10 @@ const make = Effect.gen(function* () {
     );
   };
 
-  const updateAndPersistSettings = (
+  const updateAndPersistSettings = <E = never>(
     patch: ServerSettingsPatch,
-    update: (current: ServerSettings) => Effect.Effect<ServerSettings, ServerSettingsError>,
-  ): Effect.Effect<ServerSettings, ServerSettingsError> =>
+    update: (current: ServerSettings) => Effect.Effect<ServerSettings, ServerSettingsError | E>,
+  ): Effect.Effect<ServerSettings, ServerSettingsError | E> =>
     writeSemaphore.withPermits(1)(
       Effect.gen(function* () {
         const { settings: current, parseFailure } = yield* reloadSettings;
@@ -1367,12 +1370,14 @@ const make = Effect.gen(function* () {
     start,
     ready: Deferred.await(startedDeferred),
     getSettings: getMaterializedSettings,
-    updateSettings: (patch) =>
-      updateAndPersistSettings(patch, (current) =>
-        ensureSecretProviderWritesAllowed(patch, settingsPath).pipe(
-          Effect.as(applyServerSettingsPatch(current, patch)),
-        ),
-      ),
+    updateSettings: (patch, check) =>
+      updateAndPersistSettings(patch, (current) => {
+        const next = applyServerSettingsPatch(current, patch);
+        return ensureSecretProviderWritesAllowed(patch, settingsPath).pipe(
+          Effect.andThen(check?.(current, next) ?? Effect.void),
+          Effect.as(next),
+        );
+      }),
     updateProviderInstance: (mutation, patch = {}) =>
       updateAndPersistSettings(patch, (current) =>
         Effect.gen(function* () {

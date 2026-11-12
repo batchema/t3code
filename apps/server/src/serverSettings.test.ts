@@ -486,6 +486,24 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("server settings"
       );
       assert.equal(afterProviderSave.responseStreamingMode, "paragraph");
       assert.equal(afterProviderSave.providerInstances[instanceId]?.displayName, "Kilo");
+
+      // A write's check judges the edit it would overwrite, and its failure leaves the file alone.
+      yield* writeFileStringAtomically({
+        filePath: config.settingsPath,
+        contents: `{ "responseStreamingMode": "turn" }`,
+      });
+      const refused = yield* serverSettings
+        .updateSettings({ responseStreamingMode: "paragraph" }, (current, next) =>
+          current.responseStreamingMode === "turn" && next.responseStreamingMode === "paragraph"
+            ? Effect.fail("refused" as const)
+            : Effect.void,
+        )
+        .pipe(Effect.flip);
+      assert.equal(refused, "refused");
+      const afterRefusal = yield* decodeServerSettingsJson(
+        yield* fs.readFileString(config.settingsPath),
+      );
+      assert.equal(afterRefusal.responseStreamingMode, "turn");
     }).pipe(Effect.provide(layerServerSettings())),
   );
 

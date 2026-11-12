@@ -9,7 +9,6 @@ import {
 } from "@t3tools/contracts";
 import { compileResolvedKeybindingRule } from "@t3tools/shared/keybindings";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
-import { applyServerSettingsPatch } from "@t3tools/shared/serverSettings";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import * as Environment from "../../../environment/ServerEnvironment.ts";
@@ -174,13 +173,19 @@ export const layer = McpToolAccess.toLayer(EnvironmentToolkit, {
         check,
         Effect.gen(function* () {
           const { settings } = yield* access;
-          const current = yield* settings.getSettings.pipe(Effect.mapError(unavailable));
-          if (grantsAgentAccess(current, applyServerSettingsPatch(current, decoded)))
-            return yield* new OrchestratorMcpFailure({
-              code: "capability_denied",
-              message: "Only the user can grant agents browser or device access, in Settings.",
-            });
-          const next = yield* settings.updateSettings(decoded).pipe(Effect.mapError(unavailable));
+          const next = yield* settings
+            .updateSettings(decoded, (current, patched) =>
+              grantsAgentAccess(current, patched)
+                ? Effect.fail(
+                    new OrchestratorMcpFailure({
+                      code: "capability_denied",
+                      message:
+                        "Only the user can grant agents browser or device access, in Settings.",
+                    }),
+                  )
+                : Effect.void,
+            )
+            .pipe(Effect.catchTags({ ServerSettingsError: () => Effect.fail(unavailable()) }));
           return { settings: yield* settingsView(next, keys) };
         }),
       );

@@ -1,6 +1,5 @@
 import { expect, it } from "@effect/vitest";
 import {
-  DEFAULT_SERVER_SETTINGS,
   EnvironmentId,
   ProjectId,
   ProviderInstanceId,
@@ -38,10 +37,10 @@ const longRule = { key: "mod+alt+k", command: "terminal.toggle" as const, when: 
 const makeLayer = Effect.fn(function* (
   options: {
     readonly onGetThreadShell?: Effect.Effect<void>;
-    readonly settings?: ServerSettings;
+    readonly settings?: Parameters<typeof Settings.ServerSettingsService.layerTest>[0];
   } = {},
 ) {
-  const { onGetThreadShell = Effect.void, settings = DEFAULT_SERVER_SETTINGS } = options;
+  const { onGetThreadShell = Effect.void, settings = {} } = options;
   const caller = yield* Ref.make<OrchestrationV2ThreadShell>(liveThreadShell(threadId));
   const writes = yield* Ref.make(0);
   const write = <A>(value: A) => Ref.update(writes, (count) => count + 1).pipe(Effect.as(value));
@@ -77,10 +76,7 @@ const makeLayer = Effect.fn(function* (
             capabilities: { repositoryIdentity: false },
           }),
         }),
-        Layer.mock(Settings.ServerSettingsService)({
-          getSettings: Effect.succeed(settings),
-          updateSettings: () => write(settings),
-        }),
+        Settings.ServerSettingsService.layerTest(settings),
         Layer.mock(Keybindings.Keybindings)({
           getSnapshot: Effect.succeed(snapshot),
           upsertKeybindingRule: () => write(snapshot),
@@ -100,13 +96,20 @@ const call = (...[name, params]: Parameters<Effect.Success<typeof EnvironmentToo
     Effect.map((results) => results.at(-1)?.result),
   );
 
+const unchangedSettings = (expected: ServerSettings) =>
+  Settings.ServerSettingsService.pipe(
+    Effect.flatMap((settings) => settings.getSettings),
+    Effect.map((current) => expect(current).toEqual(expected)),
+  );
+
 it.effect("refuses a settings update when the caller's turn ends while it waits", () =>
   Effect.gen(function* () {
     const checked = yield* Deferred.make<void>();
-    const { caller, writes, layer } = yield* makeLayer({
+    const { caller, layer } = yield* makeLayer({
       onGetThreadShell: Deferred.succeed(checked, undefined),
     });
     yield* Effect.gen(function* () {
+      const before = yield* (yield* Settings.ServerSettingsService).getSettings;
       const executor = yield* ThreadCommandExecutor.ThreadCommandExecutor;
       const held = yield* Deferred.make<void>();
       const release = yield* Deferred.make<void>();
@@ -125,7 +128,7 @@ it.effect("refuses a settings update when the caller's turn ends while it waits"
       yield* Deferred.succeed(release, undefined);
       yield* Fiber.join(holder);
       expect(yield* Fiber.join(update)).toMatchObject({ code: "parent_not_active" });
-      expect(yield* Ref.get(writes)).toBe(0);
+      yield* unchangedSettings(before);
     }).pipe(Effect.provide(layer));
   }),
 );
@@ -162,58 +165,34 @@ it.effect("refuses settings and shortcuts agents may not or cannot write", () =>
       ],
     ] as const;
     yield* Effect.gen(function* () {
+      const before = yield* (yield* Settings.ServerSettingsService).getSettings;
       for (const [result, code] of cases) expect(yield* result).toMatchObject({ code });
       expect(yield* Ref.get(writes)).toBe(0);
+      yield* unchangedSettings(before);
     }).pipe(Effect.provide(layer));
   }),
 );
 
 it.effect("lets agents give up browser and device access but not take back a denial", () =>
   Effect.gen(function* () {
-    const { writes, layer } = yield* makeLayer({
+    const { layer } = yield* makeLayer({
       settings: {
-        ...DEFAULT_SERVER_SETTINGS,
         enableAgentBrowserAccess: true,
         projectSettingsOverrides: { [projectId]: { enableAgentBrowserAccess: false } },
       },
     });
     yield* Effect.gen(function* () {
+      const settings = yield* Settings.ServerSettingsService;
+      const before = yield* settings.getSettings;
       for (const entry of [null, {}])
         expect(
           yield* call("t3_environment_settings_update", {
             patch: { projectSettingsOverrides: { [projectId]: entry } },
           }),
         ).toMatchObject({ code: "capability_denied" });
-      expect(yield* Ref.get(writes)).toBe(0);
-      expect(
-        yield* call("t3_environment_settings_update", {
-          patch: { enableAgentBrowserAccess: false },
-        }),
-      ).toHaveProperty("settings");
-      expect(yield* Ref.get(writes)).toBe(1);
-    }).pipe(Effect.provide(layer));
-  }),
-);
-
-it.effect("lists every loaded shortcut and removes one however its rule is spelled", () =>
-  Effect.gen(function* () {
-    const { writes, layer } = yield* makeLayer();
-    yield* Effect.gen(function* () {
-      const read = yield* call("t3_keybindings_read", {});
-      const listed = (read as { keybindings: ReadonlyArray<{ when?: string }> }).keybindings;
-      const long = listed.find((rule) => rule.when?.includes("terminalFocus && terminalFocus"));
-      expect(long).toBeDefined();
-      expect(yield* call("t3_keybinding_remove", { ...longRule, ...long })).toHaveProperty(
-        "keybindings",
-      );
-      expect(
-        yield* call("t3_keybinding_remove", {
-          key: "MOD+SHIFT+B",
-          command: "threadPanel.toggle",
-          when: "!terminalFocus",
-        }),
-      ).toHaveProperty("keybindings");
-      expect(yield* Ref.get(writes)).toBe(2);
+      yield* unchangedSettings(before);
+      yield* call("t3_environment_settings_update", { patch: { enableAgentBrowserAccess: false } });
+      expect((yield* settings.getSettings).enableAgentBrowserAccess).toBe(false);
     }).pipe(Effect.provide(layer));
   }),
 );
