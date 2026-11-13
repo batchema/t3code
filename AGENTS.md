@@ -210,3 +210,11 @@ Architecture and its constraints: `docs/internals/overview.md`. Glossary: `docs/
 ## Additional tips
 
 - Security is important, but should not be over-indexed on, especially for dev mode/maintainer-only features.
+
+## This fork
+
+This checkout is `batchema/t3code`, a personal fork. Its to-do list is the fork's GitHub Issues, not a file in the repo, so every branch sees the same list.
+
+- When asked to add a to-do, open an issue: `gh issue create --repo batchema/t3code`. Never file it upstream.
+- `gh issue list --repo batchema/t3code` shows open work.
+- A PR that finishes an issue says `Closes #N`; one that finishes part of it says `Part of #N`.
