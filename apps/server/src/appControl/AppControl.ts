@@ -2,8 +2,8 @@ import type {
   AppCommand,
   AppControlRequest,
   AppControlResponseInput,
+  AppControlResult,
   AuthSessionId,
-  RpcClientId,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as SecureRandom from "effect/crypto/SecureRandom";
@@ -20,7 +20,8 @@ import * as Stream from "effect/Stream";
 /** One window's connection to this server. */
 export interface AppControlClient {
   readonly sessionId: AuthSessionId;
-  readonly rpcClientId: RpcClientId;
+  /** Unique per socket and RPC client, since tabs share a session. */
+  readonly windowId: string;
 }
 
 export class AppControlNoWindowError extends Schema.TaggedError<AppControlNoWindowError>()(
@@ -41,16 +42,17 @@ export class AppControl extends Context.Service<
     /** Registers a window; the commands sent to it arrive until the scope closes. */
     readonly connect: (
       client: AppControlClient,
+      focused: boolean,
     ) => Effect.Effect<Stream.Stream<AppControlRequest>, never, Scope.Scope>;
     readonly reportFocus: (client: AppControlClient, focused: boolean) => Effect.Effect<void>;
     readonly respond: (
       sessionId: AuthSessionId,
       response: AppControlResponseInput,
     ) => Effect.Effect<void>;
-    /** Runs a command in the window used most recently; false when nothing there handles it. */
+    /** Runs a command in the window used most recently, returning what the window answered. */
     readonly run: (
       command: AppCommand,
-    ) => Effect.Effect<boolean, AppControlNoWindowError | AppControlTimeoutError>;
+    ) => Effect.Effect<AppControlResult, AppControlNoWindowError | AppControlTimeoutError>;
   }
 >()("t3/appControl/AppControl") {}
 
@@ -62,7 +64,7 @@ interface Window {
 
 interface Pending {
   readonly sessionId: AuthSessionId;
-  readonly deferred: Deferred.Deferred<boolean>;
+  readonly deferred: Deferred.Deferred<AppControlResult>;
 }
 
 interface State {
@@ -71,7 +73,7 @@ interface State {
   readonly focusSequence: number;
 }
 
-const windowKey = (client: AppControlClient) => `${client.sessionId}:${client.rpcClientId}`;
+const windowKey = (client: AppControlClient) => `${client.sessionId}:${client.windowId}`;
 
 export const make = Effect.gen(function* () {
   const random = yield* SecureRandom.SecureRandom;
@@ -88,13 +90,22 @@ export const make = Effect.gen(function* () {
     return { ...current, windows, focusSequence };
   };
 
-  const connect: AppControl["Service"]["connect"] = (client) =>
+  const connect: AppControl["Service"]["connect"] = (client, focused) =>
     Effect.acquireRelease(
       Effect.gen(function* () {
         const queue = yield* Queue.unbounded<AppControlRequest>();
-        // A window that just connected is the one in use until another reports focus.
+        const window = { sessionId: client.sessionId, queue };
+        // A window connecting in the background ranks below every window used before.
         yield* Ref.update(state, (current) =>
-          focusWindow(current, windowKey(client), { sessionId: client.sessionId, queue }),
+          focused
+            ? focusWindow(current, windowKey(client), window)
+            : {
+                ...current,
+                windows: new Map(current.windows).set(windowKey(client), {
+                  ...window,
+                  focusOrder: 0,
+                }),
+              },
         );
         return queue;
       }),
@@ -121,13 +132,13 @@ export const make = Effect.gen(function* () {
         Effect.map((current) => current.pending.get(response.requestId)),
       );
       if (pending?.sessionId !== sessionId) return;
-      yield* Deferred.succeed(pending.deferred, response.handled);
+      yield* Deferred.succeed(pending.deferred, response.result);
     },
   );
 
   const run: AppControl["Service"]["run"] = Effect.fn("AppControl.run")(function* (command) {
     const requestId = yield* random.uuidV4();
-    const deferred = yield* Deferred.make<boolean>();
+    const deferred = yield* Deferred.make<AppControlResult>();
     const target = yield* Ref.modify(state, (current) => {
       const window = Array.from(current.windows.values()).reduce<Window | undefined>(
         (latest, next) =>

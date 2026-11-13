@@ -25,9 +25,23 @@ export const AppControlRequest = Schema.Struct({
 });
 export type AppControlRequest = typeof AppControlRequest.Type;
 
+export const AppControlSubscribeInput = Schema.Struct({
+  /** Whether the window is in use as it subscribes, so a background reconnect is not. */
+  focused: Schema.Boolean,
+});
+export type AppControlSubscribeInput = typeof AppControlSubscribeInput.Type;
+
+export const AppControlResult = Schema.Literals([
+  "ran",
+  /** Nothing on screen handles the command right now. */
+  "not-handled",
+  /** The window shows another environment's thread; commands act only on their own. */
+  "other-environment",
+]);
+export type AppControlResult = typeof AppControlResult.Type;
+
 export const AppControlResponseInput = Schema.Struct({
   requestId: TrimmedNonEmptyString,
-  /** False when nothing in the window handles the command right now. */
-  handled: Schema.Boolean,
+  result: AppControlResult,
 });
 export type AppControlResponseInput = typeof AppControlResponseInput.Type;

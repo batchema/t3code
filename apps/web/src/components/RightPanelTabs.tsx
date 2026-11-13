@@ -104,6 +104,7 @@ import { resolvePullRequestState } from "./pullRequest/pullRequestPresentation";
 import { PullRequestGlyph } from "~/components/pullRequest/pullRequestIcons";
 import { observeResize } from "~/lib/observeResize";
 import { surfaceShortcutKey } from "~/lib/surfaceShortcutKey";
+import { registerCommandRunner } from "../shortcuts/dispatcher";
 
 export interface RightPanelTabsProps {
   mode: PreviewPanelMode;
@@ -1039,6 +1040,10 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
 
   if (props.open === false && addSurfaceMenuOpen) setAddSurfaceMenuOpen(false);
 
+  const openAddSurfaceMenu = useEffectEvent(() => {
+    addSurfaceTriggerRef.current?.focus();
+    setAddSurfaceMenuOpen(true);
+  });
   const onNewSurfaceKeyDown = useEffectEvent((event: KeyboardEvent) => {
     if (event.defaultPrevented || event.isComposing) return;
     if (
@@ -1050,16 +1055,22 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
     if (!addSurfaceMenuOpen && document.querySelector(LAUNCHER_SHORTCUT_BLOCKING_LAYERS)) return;
     event.preventDefault();
     event.stopPropagation();
-    if (!event.repeat) {
-      addSurfaceTriggerRef.current?.focus();
-      setAddSurfaceMenuOpen(true);
-    }
+    if (!event.repeat) openAddSurfaceMenu();
   });
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- subscribes a document keydown listener for the new surface shortcut while the panel is open
   useEffect(() => {
     if (props.open === false) return;
     document.addEventListener("keydown", onNewSurfaceKeyDown, true);
-    return () => document.removeEventListener("keydown", onNewSurfaceKeyDown, true);
+    const unregisterRunner = registerCommandRunner((command) => {
+      if (command !== "rightPanel.new" || document.querySelector(LAUNCHER_SHORTCUT_BLOCKING_LAYERS))
+        return false;
+      openAddSurfaceMenu();
+      return true;
+    });
+    return () => {
+      document.removeEventListener("keydown", onNewSurfaceKeyDown, true);
+      unregisterRunner();
+    };
   }, [props.open]);
 
   const updateTabScrollState = (viewport: HTMLDivElement) => {

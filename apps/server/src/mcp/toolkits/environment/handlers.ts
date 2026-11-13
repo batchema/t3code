@@ -259,20 +259,27 @@ export const layer = McpToolAccess.toLayer(EnvironmentToolkit, {
       const { appControl } = yield* access;
       const failed = (message: string) =>
         Effect.fail(new OrchestratorMcpFailure({ code: "orchestration_error", message }));
-      const ran = yield* appControl.run(appCommand).pipe(
+      const result = yield* appControl.run(appCommand).pipe(
         Effect.catchTags({
           AppControlNoWindowError: () =>
             failed(
               "No T3 Code window is open on this environment. Mobile apps don't take commands.",
             ),
-          AppControlTimeoutError: () => failed("The user's window didn't answer."),
+          AppControlTimeoutError: () =>
+            failed(
+              "The user's window didn't answer. It may still run the command when it wakes, so check before retrying.",
+            ),
         }),
       );
-      if (!ran)
+      if (result === "other-environment")
+        return yield* invalid(
+          "The user's window is showing another environment's thread, so it won't run commands from this one.",
+        );
+      if (result === "not-handled")
         return yield* invalid(
           `Nothing in the user's window handles \`${command}\` right now, such as a thread command outside a thread.`,
         );
-      return { ran };
+      return { ran: true };
     }),
   ),
 });

@@ -1458,10 +1458,10 @@ export const layerWsRpc = (
         yield* Effect.context<Effect.Services<ReturnType<typeof remoteSshDeviceHosts>>>();
       const orchestrationEngine = yield* Orchestrator.OrchestratorV2;
       const random = yield* SecureRandom.SecureRandom;
-      // RPC client ids are only unique within one socket; terminals share viewers across sockets.
-      const terminalViewerPrefix = yield* random.uuidV4();
-      const terminalViewerId = (metadata: { readonly client: { readonly id: number } }) =>
-        `${terminalViewerPrefix}:${metadata.client.id}`;
+      // RPC client ids are only unique within one socket; terminals and app windows span sockets.
+      const socketPrefix = yield* random.uuidV4();
+      const socketClientId = (metadata: { readonly client: { readonly id: number } }) =>
+        `${socketPrefix}:${metadata.client.id}`;
       const serverCommandId = (tag: string) =>
         random.uuidV4().pipe(
           Effect.orDie,
@@ -2761,7 +2761,7 @@ export const layerWsRpc = (
             ),
             Effect.andThen(
               appControl.reportFocus(
-                { sessionId: currentSessionId, rpcClientId: RpcClientId.make(metadata.client.id) },
+                { sessionId: currentSessionId, windowId: socketClientId(metadata) },
                 input.focused && input.visible,
               ),
             ),
@@ -3230,10 +3230,10 @@ export const layerWsRpc = (
         [WS_METHODS.reviewGetDiffFileContents]: (input) => review.getDiffFileContents(input),
         [WS_METHODS.terminalOpen]: (input) => terminalManager.open(input),
         [WS_METHODS.terminalAttach]: (input, metadata) =>
-          terminalManager.attachOutputStream(input, terminalViewerId(metadata)),
+          terminalManager.attachOutputStream(input, socketClientId(metadata)),
         [WS_METHODS.terminalWrite]: (input) => terminalManager.write(input),
         [WS_METHODS.terminalResize]: (input, metadata) =>
-          terminalManager.resize(input, terminalViewerId(metadata)),
+          terminalManager.resize(input, socketClientId(metadata)),
         [WS_METHODS.terminalClear]: (input) => terminalManager.clear(input),
         [WS_METHODS.terminalClose]: (input) => terminalManager.close(input),
         [WS_METHODS.terminalObserve]: (input) =>
@@ -3259,12 +3259,12 @@ export const layerWsRpc = (
         [WS_METHODS.previewReportProfiles]: (input) => reportProfiles(input),
         [WS_METHODS.previewReportStatus]: (input) => previewManager.reportStatus(input),
         [WS_METHODS.subscribePreviewEvents]: (_input) => previewManager.events,
-        [WS_METHODS.subscribeAppControl]: (_input, metadata) =>
+        [WS_METHODS.subscribeAppControl]: (input, metadata) =>
           Stream.unwrap(
-            appControl.connect({
-              sessionId: currentSessionId,
-              rpcClientId: RpcClientId.make(metadata.client.id),
-            }),
+            appControl.connect(
+              { sessionId: currentSessionId, windowId: socketClientId(metadata) },
+              input.focused,
+            ),
           ),
         [WS_METHODS.appControlRespond]: (input) => appControl.respond(currentSessionId, input),
         [WS_METHODS.deviceConfigure]: (input) => deviceService.configure(input),

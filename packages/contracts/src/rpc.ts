@@ -82,7 +82,11 @@ import {
   AuthAccessStreamEvent,
   EnvironmentAuthorizationError,
 } from "./auth.ts";
-import { AppControlRequest, AppControlResponseInput } from "./appControl.ts";
+import {
+  AppControlRequest,
+  AppControlResponseInput,
+  AppControlSubscribeInput,
+} from "./appControl.ts";
 import { ClientActivityReportInput } from "./background.ts";
 import {
   FilesystemGetMetadataInput,
@@ -1694,7 +1698,7 @@ const WsSubscribePreviewEventsRpc = Rpc.make(WS_METHODS.subscribePreviewEvents, 
 });
 
 const WsSubscribeAppControlRpc = Rpc.make(WS_METHODS.subscribeAppControl, {
-  payload: Schema.Struct({}),
+  payload: AppControlSubscribeInput,
   success: AppControlRequest,
   error: EnvironmentAuthorizationError,
   stream: true,

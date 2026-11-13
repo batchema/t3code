@@ -1,4 +1,4 @@
-import { useAtomMount, useAtomValue } from "@effect/atom-react";
+import { useAtomValue } from "@effect/atom-react";
 import * as Schema from "effect/Schema";
 import {
   useEffect,
@@ -62,7 +62,6 @@ import {
 } from "./ui/sidebar";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { appAtomRegistry } from "../rpc/atomRegistry";
-import { appControlAtom } from "../lib/appControl";
 import {
   registerCommandRunner,
   registerCommands,
@@ -289,8 +288,17 @@ function registerThreadUndoCommands(
     if (threadSidebarShown()) releaseThreadUndoShortcut();
   };
   window.addEventListener("input", onInput, true);
+  const unregisterRunner = registerCommandRunner(
+    (command) =>
+      command === "thread.undo" &&
+      threadSidebarShown() &&
+      !isCommandPaletteOpen() &&
+      !isModelPickerOpen() &&
+      undoLatestThreadAction(),
+  );
   return () => {
     unregister();
+    unregisterRunner();
     window.removeEventListener("input", onInput, true);
   };
 }
@@ -321,7 +329,6 @@ function SidebarControl({ showSidebar }: { readonly showSidebar: boolean }) {
   const router = useRouter();
   const usagePageOpen = useLocation({ select: (location) => location.pathname === "/usage" });
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
-  useAtomMount(appControlAtom);
   const { toggleSidebar, isMobile, mobileSheetMounted } = useSidebar();
   const isSidebarVisible = useSidebarVisibility();
   const environmentIdentificationMode = useEnvironmentIdentificationMode();

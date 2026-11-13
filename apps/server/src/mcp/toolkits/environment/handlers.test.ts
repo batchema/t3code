@@ -4,6 +4,7 @@ import {
   ProjectId,
   ProviderInstanceId,
   ThreadId,
+  type AppControlResult,
   type OrchestrationV2ThreadShell,
   type ServerSettings,
 } from "@t3tools/contracts";
@@ -39,13 +40,13 @@ const makeLayer = Effect.fn(function* (
   options: {
     readonly onGetThreadShell?: Effect.Effect<void>;
     readonly settings?: Parameters<typeof Settings.ServerSettingsService.layerTest>[0];
-    readonly appCommand?: Effect.Effect<boolean, AppControl.AppControlNoWindowError>;
+    readonly appCommand?: Effect.Effect<AppControlResult, AppControl.AppControlNoWindowError>;
   } = {},
 ) {
   const {
     onGetThreadShell = Effect.void,
     settings = {},
-    appCommand = Effect.succeed(true),
+    appCommand = Effect.succeed("ran"),
   } = options;
   const caller = yield* Ref.make<OrchestrationV2ThreadShell>(liveThreadShell(threadId));
   const writes = yield* Ref.make(0);
@@ -233,8 +234,9 @@ it.effect("lists every loaded shortcut in a form that writes back", () =>
 it.effect("says when the user's window cannot run an app command", () =>
   Effect.gen(function* () {
     const cases = [
-      [Effect.succeed(true), { ran: true }],
-      [Effect.succeed(false), { code: "invalid_request" }],
+      [Effect.succeed<AppControlResult>("ran"), { ran: true }],
+      [Effect.succeed<AppControlResult>("not-handled"), { code: "invalid_request" }],
+      [Effect.succeed<AppControlResult>("other-environment"), { code: "invalid_request" }],
       [Effect.fail(new AppControl.AppControlNoWindowError()), { code: "orchestration_error" }],
     ] as const;
     for (const [appCommand, expected] of cases) {
