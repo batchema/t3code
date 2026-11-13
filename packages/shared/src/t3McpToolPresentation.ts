@@ -56,6 +56,7 @@ export type T3McpToolSummaryAction =
   | "environment-unlink"
   | "environment-update"
   | "app-command"
+  | "app-navigate"
   | "attachment-prepare"
   | "attachment-discard"
   | "attachment-send"
@@ -372,6 +373,7 @@ const T3_MCP_TOOLS: Readonly<Record<string, T3McpToolDefinition>> = {
     "environment-update",
   ),
   t3_app_command: tool(["Run", "Running", "Ran", "an app command"], "app-command"),
+  t3_app_navigate: tool(["Open", "Opening", "Opened", "a page in the app"], "app-navigate"),
   t3_thread_launch: tool(["Launch", "Launching", "Launched", "a project thread"], "thread-create"),
   t3_project_list: tool(["List", "Listing", "Listed", "projects"], "project-list"),
   t3_project_read: tool(["Read", "Reading", "Read", "a project"], "project-read"),

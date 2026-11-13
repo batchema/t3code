@@ -358,6 +358,9 @@ export function summarizeT3ToolCalls(
     case "app-command":
       label = phrase("Ran", "run", `app commands ${times}`);
       break;
+    case "app-navigate":
+      label = phrase("Opened", "open", `pages in the app ${times}`);
+      break;
     case "environment-links":
       label = phrase("Listed", "list", `linked environments ${times}`);
       break;

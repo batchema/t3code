@@ -1,5 +1,5 @@
 import type {
-  AppCommand,
+  AppAction,
   AppControlRequest,
   AppControlResponseInput,
   AppControlResult,
@@ -49,9 +49,9 @@ export class AppControl extends Context.Service<
       sessionId: AuthSessionId,
       response: AppControlResponseInput,
     ) => Effect.Effect<void>;
-    /** Runs a command in the window used most recently, returning what the window answered. */
+    /** Runs an action in the window used most recently, returning what the window answered. */
     readonly run: (
-      command: AppCommand,
+      action: AppAction,
     ) => Effect.Effect<AppControlResult, AppControlNoWindowError | AppControlTimeoutError>;
   }
 >()("t3/appControl/AppControl") {}
@@ -136,7 +136,7 @@ export const make = Effect.gen(function* () {
     },
   );
 
-  const run: AppControl["Service"]["run"] = Effect.fn("AppControl.run")(function* (command) {
+  const run: AppControl["Service"]["run"] = Effect.fn("AppControl.run")(function* (action) {
     const requestId = yield* random.uuidV4();
     const deferred = yield* Deferred.make<AppControlResult>();
     const target = yield* Ref.modify(state, (current) => {
@@ -158,7 +158,7 @@ export const make = Effect.gen(function* () {
       pending.delete(requestId);
       return { ...current, pending };
     });
-    return yield* Queue.offer(target.queue, { requestId, command }).pipe(
+    return yield* Queue.offer(target.queue, { requestId, action }).pipe(
       Effect.andThen(Deferred.await(deferred).pipe(Effect.timeoutOption(RESPONSE_TIMEOUT))),
       Effect.flatMap(
         Option.match({

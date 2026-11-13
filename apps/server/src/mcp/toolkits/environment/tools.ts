@@ -1,4 +1,5 @@
 import {
+  AppDestination,
   BackgroundActivityProfileSelection,
   ExecutionEnvironmentDescriptor,
   OrchestratorMcpEnvironmentTarget,
@@ -135,6 +136,16 @@ const AppCommandTool = Tool.make("t3_app_command", {
   }),
   success: Schema.Struct({ ran: Schema.Boolean }),
 }).annotate(Tool.Destructive, true);
+const AppNavigateTool = Tool.make("t3_app_navigate", {
+  ...shared,
+  description:
+    "Show a page in the user's T3 Code window, the one they used last: a thread from this environment, a settings section, usage, or pull requests. Live full-access or default caller thread only.",
+  parameters: Schema.Struct({
+    environmentId: OrchestratorMcpEnvironmentTarget,
+    to: AppDestination,
+  }),
+  success: Schema.Struct({ ran: Schema.Boolean }),
+});
 export const EnvironmentToolkit = Toolkit.make(
   EnvironmentReadTool,
   SettingsReadTool,
@@ -143,4 +154,5 @@ export const EnvironmentToolkit = Toolkit.make(
   KeybindingUpsertTool,
   KeybindingRemoveTool,
   AppCommandTool,
+  AppNavigateTool,
 );
