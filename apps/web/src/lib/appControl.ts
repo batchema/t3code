@@ -1,10 +1,12 @@
 import { EnvironmentRegistry } from "@t3tools/client-runtime/connection";
+import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { request, subscribeDynamic } from "@t3tools/client-runtime/rpc";
 import {
   type AppAction,
   type AppCommand,
   type AppControlResult,
   type AppDestination,
+  EnvironmentId,
   VIEW_ONLY_APP_COMMANDS,
   WS_METHODS,
 } from "@t3tools/contracts";
@@ -19,6 +21,7 @@ import type { SettingsPath } from "../components/settings/settingsSearch";
 import { connectionAtomRuntime } from "../connection/runtime";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { runCommand } from "../shortcuts/dispatcher";
+import { waitForThreadShell } from "../state/entities";
 import { navigateSettled } from "./navigateSettled";
 import { resolveThreadRouteTarget } from "../threadRoutes";
 
@@ -66,9 +69,15 @@ export function startAppControl(router: AnyRouter): () => void {
   };
   const act = async (environmentId: string, action: AppAction): Promise<AppControlResult> => {
     if (action._tag === "command") return run(environmentId, action.command);
-    return (await navigateSettled(router, destination(environmentId, action.to)))
-      ? "ran"
-      : "not-handled";
+    const { to } = action;
+    if (!(await navigateSettled(router, destination(environmentId, to)))) return "not-handled";
+    // An older thread mounts its chat only once its row loads, after the route has settled.
+    if (
+      to.page === "thread" &&
+      !(await waitForThreadShell(scopeThreadRef(EnvironmentId.make(environmentId), to.threadId)))
+    )
+      return "not-handled";
+    return "ran";
   };
   const focused = Effect.sync(() => ({
     focused: document.hasFocus() && document.visibilityState === "visible",
