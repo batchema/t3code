@@ -15,6 +15,7 @@ import * as Layer from "effect/Layer";
 import * as Ref from "effect/Ref";
 import * as Stream from "effect/Stream";
 
+import * as AppControl from "../../../appControl/AppControl.ts";
 import * as Environment from "../../../environment/ServerEnvironment.ts";
 import * as Keybindings from "../../../keybindings.ts";
 import * as ThreadCommandExecutor from "../../../orchestration-v2/ThreadCommandExecutor.ts";
@@ -38,9 +39,14 @@ const makeLayer = Effect.fn(function* (
   options: {
     readonly onGetThreadShell?: Effect.Effect<void>;
     readonly settings?: Parameters<typeof Settings.ServerSettingsService.layerTest>[0];
+    readonly appCommand?: Effect.Effect<boolean, AppControl.AppControlNoWindowError>;
   } = {},
 ) {
-  const { onGetThreadShell = Effect.void, settings = {} } = options;
+  const {
+    onGetThreadShell = Effect.void,
+    settings = {},
+    appCommand = Effect.succeed(true),
+  } = options;
   const caller = yield* Ref.make<OrchestrationV2ThreadShell>(liveThreadShell(threadId));
   const writes = yield* Ref.make(0);
   const write = <A>(value: A) => Ref.update(writes, (count) => count + 1).pipe(Effect.as(value));
@@ -81,6 +87,9 @@ const makeLayer = Effect.fn(function* (
           getSnapshot: Effect.succeed(snapshot),
           upsertKeybindingRule: () => write(snapshot),
           removeKeybindingRule: () => write(snapshot),
+        }),
+        Layer.mock(AppControl.AppControl)({
+          run: () => appCommand.pipe(Effect.tap(() => write(undefined))),
         }),
       ),
     ),
@@ -163,6 +172,8 @@ it.effect("refuses settings and shortcuts agents may not or cannot write", () =>
         call("t3_keybinding_remove", { key: "mod+k", command: "terminal.toggle" }),
         "invalid_request",
       ],
+      [call("t3_app_command", { command: "not.a.command" }), "invalid_request"],
+      [call("t3_app_command", { command: "composer.sendAlternate" }), "invalid_request"],
     ] as const;
     yield* Effect.gen(function* () {
       const before = yield* (yield* Settings.ServerSettingsService).getSettings;
@@ -216,5 +227,21 @@ it.effect("lists every loaded shortcut in a form that writes back", () =>
       ).toHaveProperty("keybindings");
       expect(yield* Ref.get(writes)).toBe(2);
     }).pipe(Effect.provide(layer));
+  }),
+);
+
+it.effect("says when the user's window cannot run an app command", () =>
+  Effect.gen(function* () {
+    const cases = [
+      [Effect.succeed(true), { ran: true }],
+      [Effect.succeed(false), { code: "invalid_request" }],
+      [Effect.fail(new AppControl.AppControlNoWindowError()), { code: "orchestration_error" }],
+    ] as const;
+    for (const [appCommand, expected] of cases) {
+      const { layer } = yield* makeLayer({ appCommand });
+      expect(
+        yield* call("t3_app_command", { command: "terminal.toggle" }).pipe(Effect.provide(layer)),
+      ).toMatchObject(expected);
+    }
   }),
 );

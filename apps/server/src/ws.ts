@@ -229,6 +229,7 @@ import * as DirectEndpoints from "./environment/DirectEndpoints.ts";
 import * as RemoteOpenTargets from "./environment/RemoteOpenTargets.ts";
 import * as DefectReporter from "./observability/DefectReporter.ts";
 import * as EventLoopMonitor from "./observability/EventLoopMonitor.ts";
+import * as AppControl from "./appControl/AppControl.ts";
 import * as BackgroundPolicy from "./background/BackgroundPolicy.ts";
 import * as EnvironmentAuth from "./auth/EnvironmentAuth.ts";
 import { requiredScopeForDeviceList, rpcAuthorizationError } from "./auth/RpcAuthorization.ts";
@@ -1497,6 +1498,7 @@ export const layerWsRpc = (
       const vcsStatusBroadcaster = yield* VcsStatusBroadcaster.VcsStatusBroadcaster;
       const terminalManager = yield* TerminalManager.TerminalManager;
       const previewManager = yield* PreviewManager.PreviewManager;
+      const appControl = yield* AppControl.AppControl;
       const portDiscovery = yield* PortScanner.PortDiscovery;
       const providerRegistry = yield* ProviderRegistry.ProviderRegistry;
       const providerInstances = yield* ProviderInstanceRegistry.ProviderInstanceRegistry;
@@ -2757,6 +2759,12 @@ export const layerWsRpc = (
                 input,
               ),
             ),
+            Effect.andThen(
+              appControl.reportFocus(
+                { sessionId: currentSessionId, rpcClientId: RpcClientId.make(metadata.client.id) },
+                input.focused && input.visible,
+              ),
+            ),
           ),
         [WS_METHODS.cloudGetRelayClientStatus]: (_input) => relayClient.resolve,
         [WS_METHODS.cloudInstallRelayClient]: (_input) =>
@@ -3251,6 +3259,14 @@ export const layerWsRpc = (
         [WS_METHODS.previewReportProfiles]: (input) => reportProfiles(input),
         [WS_METHODS.previewReportStatus]: (input) => previewManager.reportStatus(input),
         [WS_METHODS.subscribePreviewEvents]: (_input) => previewManager.events,
+        [WS_METHODS.subscribeAppControl]: (_input, metadata) =>
+          Stream.unwrap(
+            appControl.connect({
+              sessionId: currentSessionId,
+              rpcClientId: RpcClientId.make(metadata.client.id),
+            }),
+          ),
+        [WS_METHODS.appControlRespond]: (input) => appControl.respond(currentSessionId, input),
         [WS_METHODS.deviceConfigure]: (input) => deviceService.configure(input),
         [WS_METHODS.deviceTestHost]: (input) => deviceService.testHost(input),
         [WS_METHODS.deviceEasAccount]: (input) => deviceService.easAccount(input),

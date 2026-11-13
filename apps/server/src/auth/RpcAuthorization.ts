@@ -200,6 +200,8 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.previewReportStatus]: AuthPreviewOperateScope,
   [WS_METHODS.previewStopLocalServer]: AuthTerminalOperateScope,
   [WS_METHODS.subscribePreviewEvents]: AuthOrchestrationReadScope,
+  [WS_METHODS.subscribeAppControl]: AuthOrchestrationReadScope,
+  [WS_METHODS.appControlRespond]: AuthOrchestrationReadScope,
   [WS_METHODS.subscribeDiscoveredLocalServers]: AuthOrchestrationReadScope,
   [WS_METHODS.deviceConfigure]: AuthSettingsWriteScope,
   [WS_METHODS.deviceTestHost]: AuthSettingsWriteScope,

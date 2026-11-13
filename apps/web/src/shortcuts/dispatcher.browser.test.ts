@@ -1,7 +1,7 @@
 import type { KeybindingCommand, ResolvedKeybindingsConfig } from "@t3tools/contracts";
 import { describe, expect, it, vi } from "vite-plus/test";
 
-import { dispatchMenuAction, registerCommands, registerMenuAction } from "./dispatcher";
+import { dispatchMenuAction, registerCommands, registerMenuAction, runCommand } from "./dispatcher";
 
 function bindings(entries: ReadonlyArray<[string, KeybindingCommand]>): ResolvedKeybindingsConfig {
   return entries.map(([key, command]) => ({
@@ -46,22 +46,29 @@ describe("command dispatcher", () => {
     expect(global).not.toHaveBeenCalled();
   });
 
-  it("falls through scopes that return false, skip the command, or fail their guard", () => {
-    const global = vi.fn();
-    const declined = vi.fn(() => false);
-    const guarded = vi.fn();
-    using stack = new DisposableStack();
-    stack.defer(registerCommands({ "chat.new": global }, { keybindings }));
-    stack.defer(registerCommands({ "chat.new": declined }, { keybindings }));
-    stack.defer(registerCommands({ "chat.newLocal": vi.fn() }, { keybindings }));
-    stack.defer(registerCommands({ "chat.new": guarded }, { keybindings, when: () => false }));
+  it.each([
+    ["key press", () => press("k")],
+    ["agent", () => expect(runCommand("chat.new")).toBe(true)],
+  ])(
+    "falls through scopes that return false, skip the command, or fail their guard (%s)",
+    (_, run) => {
+      const global = vi.fn();
+      const declined = vi.fn(() => false);
+      const guarded = vi.fn();
+      using stack = new DisposableStack();
+      stack.defer(registerCommands({ "chat.new": global }, { keybindings }));
+      stack.defer(registerCommands({ "chat.new": declined }, { keybindings }));
+      stack.defer(registerCommands({ "chat.newLocal": vi.fn() }, { keybindings }));
+      stack.defer(registerCommands({ "chat.new": guarded }, { keybindings, when: () => false }));
 
-    press("k");
+      run();
 
-    expect(guarded).not.toHaveBeenCalled();
-    expect(declined).toHaveBeenCalledOnce();
-    expect(global).toHaveBeenCalledOnce();
-  });
+      expect(guarded).not.toHaveBeenCalled();
+      expect(declined).toHaveBeenCalledOnce();
+      expect(global).toHaveBeenCalledOnce();
+      expect(runCommand("chat.find")).toBe(false);
+    },
+  );
 
   it("stops once a handler prevents default, and unregisters on cleanup", () => {
     const lower = vi.fn();

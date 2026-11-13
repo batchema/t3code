@@ -7,6 +7,7 @@ import {
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 import { Tool, Toolkit } from "effect/ai";
+import * as AppControl from "../../../appControl/AppControl.ts";
 import * as ServerEnvironment from "../../../environment/ServerEnvironment.ts";
 import * as Keybindings from "../../../keybindings.ts";
 import * as ThreadCommandExecutor from "../../../orchestration-v2/ThreadCommandExecutor.ts";
@@ -35,6 +36,7 @@ const shared = {
     ServerEnvironment.ServerEnvironment,
     Settings.ServerSettingsService,
     Keybindings.Keybindings,
+    AppControl.AppControl,
     ThreadCommandExecutor.ThreadCommandExecutor,
   ],
 };
@@ -123,6 +125,16 @@ const KeybindingRemoveTool = Tool.make("t3_keybinding_remove", {
   }),
   success: Schema.Struct({ keybindings: Schema.Array(KeybindingRuleView) }),
 }).annotate(Tool.Destructive, true);
+const AppCommandTool = Tool.make("t3_app_command", {
+  ...shared,
+  description:
+    "Run a command from `t3_keybindings_read` in the user's T3 Code window, the one they used last, as if they pressed its shortcut. Sending or dictating in their composer stays theirs. Live full-access or default caller thread only.",
+  parameters: Schema.Struct({
+    environmentId: OrchestratorMcpEnvironmentTarget,
+    command: Schema.String.annotate({ description: 'e.g. "terminal.toggle".' }),
+  }),
+  success: Schema.Struct({ ran: Schema.Boolean }),
+}).annotate(Tool.Destructive, true);
 export const EnvironmentToolkit = Toolkit.make(
   EnvironmentReadTool,
   SettingsReadTool,
@@ -130,4 +142,5 @@ export const EnvironmentToolkit = Toolkit.make(
   KeybindingsReadTool,
   KeybindingUpsertTool,
   KeybindingRemoveTool,
+  AppCommandTool,
 );

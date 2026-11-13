@@ -1,6 +1,7 @@
 import type { KeybindingCommand, ResolvedKeybindingsConfig } from "@t3tools/contracts";
 import { useEffect, useEffectEvent } from "react";
 import { isCommandPaletteOpen } from "../../commandPaletteBus";
+import { registerCommandRunner } from "../../shortcuts/dispatcher";
 import { resolveChatShortcutCommand, type ShortcutMatchContext } from "../../keybindings";
 import { isTerminalCloseConfirmPending } from "../../lib/terminalCloseConfirm";
 import {
@@ -92,6 +93,17 @@ export function useChatShortcuts(input: ChatShortcutsInput) {
     event.preventDefault();
     event.stopPropagation();
   });
+  const runWithoutKey = useEffectEvent((command: KeybindingCommand) => {
+    if (!input.enabled || isCommandPaletteOpen()) return false;
+    const run =
+      input.commands[command] ??
+      composerShortcutCommands(input.composerRef, input.branchToolbarRef)[command] ??
+      input.fallback(command);
+    const event = new KeyboardEvent("keydown", { cancelable: true });
+    return (
+      run !== undefined && run({ event, terminalFocusOwner: getTerminalFocusOwner() }) !== false
+    );
+  });
   const dismissFind = useEffectEvent((event: KeyboardEvent) => {
     if (
       event.key !== "Escape" ||
@@ -132,9 +144,11 @@ export function useChatShortcuts(input: ChatShortcutsInput) {
     const onKeyDown = (event: KeyboardEvent) => dismissFind(event);
     window.addEventListener("keydown", onKeyDownCapture, true);
     window.addEventListener("keydown", onKeyDown);
+    const unregisterRunner = registerCommandRunner((command) => runWithoutKey(command));
     return () => {
       window.removeEventListener("keydown", onKeyDownCapture, true);
       window.removeEventListener("keydown", onKeyDown);
+      unregisterRunner();
     };
   }, [composerElement, embedded]);
 }
