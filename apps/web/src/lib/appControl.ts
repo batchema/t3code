@@ -8,7 +8,7 @@ import {
   VIEW_ONLY_APP_COMMANDS,
   WS_METHODS,
 } from "@t3tools/contracts";
-import type { AnyRouter } from "@tanstack/react-router";
+import type { AnyRouter, NavigateOptions } from "@tanstack/react-router";
 import * as Effect from "effect/Effect";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
@@ -19,7 +19,11 @@ import type { SettingsPath } from "../components/settings/settingsSearch";
 import { connectionAtomRuntime } from "../connection/runtime";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { runCommand } from "../shortcuts/dispatcher";
+import { navigateSettled } from "./navigateSettled";
 import { resolveThreadRouteTarget } from "../threadRoutes";
+
+// The server stops waiting for an answer after this long.
+const RESPONSE_DEADLINE = "5 seconds";
 
 /** Runs the commands agents send this window, from every environment it is connected to. */
 export function startAppControl(router: AnyRouter): () => void {
@@ -42,34 +46,30 @@ export function startAppControl(router: AnyRouter): () => void {
     }
     return runCommand(command) ? "ran" : "not-handled";
   };
-  const navigate = (environmentId: string, to: AppDestination): AppControlResult => {
+  const destination = (environmentId: string, to: AppDestination): NavigateOptions => {
     switch (to.page) {
       case "thread":
-        void router.navigate({
+        return {
           to: "/$environmentId/$threadId",
           params: { environmentId, threadId: to.threadId },
-        });
-        break;
+        } as const;
       case "settings": {
-        const path: SettingsPath | "/settings" = to.section
-          ? `/settings/${to.section}`
-          : "/settings";
-        void router.navigate({ to: path });
-        break;
+        // Straight to a section: `/settings` redirects, which would look like a blocked move.
+        const path: SettingsPath = `/settings/${to.section ?? "general"}`;
+        return { to: path };
       }
       case "usage":
-        void router.navigate({ to: "/usage" });
-        break;
+        return { to: "/usage" } as const;
       case "pull-requests":
-        void router.navigate({ to: "/pull-requests", search: readPullRequestListPreferences() });
-        break;
+        return { to: "/pull-requests", search: readPullRequestListPreferences() } as const;
     }
-    return "ran";
   };
-  const act = (environmentId: string, action: AppAction) =>
-    action._tag === "command"
-      ? run(environmentId, action.command)
-      : navigate(environmentId, action.to);
+  const act = async (environmentId: string, action: AppAction): Promise<AppControlResult> => {
+    if (action._tag === "command") return run(environmentId, action.command);
+    return (await navigateSettled(router, destination(environmentId, action.to)))
+      ? "ran"
+      : "not-handled";
+  };
   const focused = Effect.sync(() => ({
     focused: document.hasFocus() && document.visibilityState === "visible",
   }));
@@ -89,10 +89,14 @@ export function startAppControl(router: AnyRouter): () => void {
                 environmentId,
                 subscribeDynamic(WS_METHODS.subscribeAppControl, () => focused).pipe(
                   Stream.mapEffect(({ requestId, action }) =>
-                    request(WS_METHODS.appControlRespond, {
-                      requestId,
-                      result: act(environmentId, action),
-                    }).pipe(Effect.ignoreCause),
+                    // Requests run in order, so one that never settles must not hold the rest.
+                    Effect.promise(() => act(environmentId, action)).pipe(
+                      Effect.timeout(RESPONSE_DEADLINE),
+                      Effect.flatMap((result) =>
+                        request(WS_METHODS.appControlRespond, { requestId, result }),
+                      ),
+                      Effect.ignoreCause,
+                    ),
                   ),
                   Stream.ignoreCause,
                 ),
