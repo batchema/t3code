@@ -82,7 +82,7 @@ import { RightPanelTabs } from "../RightPanelTabs";
 import { isCommandPaletteOpen } from "~/commandPaletteBus";
 import { isElectron } from "~/env";
 import { resolveShortcutCommand, shortcutLabelForCommand } from "~/keybindings";
-import { registerCommandRunner, registerCommands } from "~/shortcuts/dispatcher";
+import { registerCommands } from "~/shortcuts/dispatcher";
 import { isTerminalFocused } from "~/lib/terminalFocus";
 import { PanelLayoutControls, RightPanelMaximizeControl } from "../chat/PanelLayoutControls";
 import { Button } from "../ui/button";
@@ -1446,33 +1446,18 @@ export function PullRequestsPage() {
   });
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- document keydown listener for the right panel and copy-reference shortcuts
   useEffect(() => {
-    const run = (command: string | null, event: KeyboardEvent) => {
-      const handler =
-        command === "rightPanel.close"
-          ? closeActiveSurfaceFromShortcut
-          : command === "rightPanel.toggle"
-            ? toggleRightPanelFromShortcut
-            : command === "rightPanel.toggleMaximized"
-              ? toggleRightPanelMaximizedFromShortcut
-              : command === "thread.copyReference"
-                ? copyPullRequestFromShortcut
-                : undefined;
-      handler?.(event);
-      return event.defaultPrevented;
-    };
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented || isCommandPaletteOpen()) return;
-      run(resolveShortcutCommand(event, keybindings, { context: getShortcutContext() }), event);
+      const command = resolveShortcutCommand(event, keybindings, {
+        context: getShortcutContext(),
+      });
+      if (command === "rightPanel.close") closeActiveSurfaceFromShortcut(event);
+      if (command === "rightPanel.toggle") toggleRightPanelFromShortcut(event);
+      if (command === "rightPanel.toggleMaximized") toggleRightPanelMaximizedFromShortcut(event);
+      if (command === "thread.copyReference") copyPullRequestFromShortcut(event);
     };
     document.addEventListener("keydown", onKeyDown);
-    const unregisterRunner = registerCommandRunner(
-      (command) =>
-        !isCommandPaletteOpen() && run(command, new KeyboardEvent("keydown", { cancelable: true })),
-    );
-    return () => {
-      document.removeEventListener("keydown", onKeyDown);
-      unregisterRunner();
-    };
+    return () => document.removeEventListener("keydown", onKeyDown);
   }, [keybindings]);
 
   return (

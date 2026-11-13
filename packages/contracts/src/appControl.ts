@@ -4,16 +4,48 @@ import { TrimmedNonEmptyString } from "./baseSchemas.ts";
 import { STATIC_KEYBINDING_COMMANDS } from "./keybindings.ts";
 
 /**
- * Only the user may trigger these: they send what the user wrote, listen to them, or (undo)
- * replay actions that may belong to other environments.
+ * Only the user may trigger these: they send what the user wrote, listen to them, or pick
+ * work that may belong to another environment (undo and reopen history, new threads, hosts).
+ * Agents start threads with `t3_thread_launch` instead.
  */
 const USER_ONLY_COMMANDS = new Set<string>([
   "composer.sendAlternate",
   "composer.sendBackground",
   "composer.sendAndNewThread",
   "composer.dictation",
+  "composer.cycleHost",
   "thread.steerQueuedMessage",
   "thread.undo",
+  "view.reopenClosed",
+  "chat.new",
+  "chat.newLocal",
+  "chat.newWithoutProject",
+]);
+
+/**
+ * These change only the window's own view, so they run on any screen. The rest act on the
+ * thread or draft on screen, so they run only while it belongs to the agent's environment.
+ */
+export const VIEW_ONLY_APP_COMMANDS: ReadonlySet<string> = new Set([
+  "sidebar.toggle",
+  "navigation.back",
+  "navigation.forward",
+  "workspace.focusNext",
+  "workspace.focusPrevious",
+  "commandPalette.toggle",
+  "theme.select",
+  "appearance.cycle",
+  "themeEditor.toggle",
+  "thread.previous",
+  "thread.next",
+  "usage.open",
+  "usage.cost",
+  "usage.tokens",
+  "usage.limits",
+  "usage.period.day",
+  "usage.period.week",
+  "usage.period.month",
+  "usage.period.quarter",
 ]);
 
 /** Shortcut commands an agent may run in the user's window. */
@@ -39,7 +71,7 @@ export const AppControlResult = Schema.Literals([
   "ran",
   /** Nothing on screen handles the command right now. */
   "not-handled",
-  /** The window shows another environment's thread; commands act only on their own. */
+  /** The window isn't showing a thread or draft from the agent's environment. */
   "other-environment",
 ]);
 export type AppControlResult = typeof AppControlResult.Type;

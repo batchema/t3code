@@ -273,7 +273,7 @@ export const layer = McpToolAccess.toLayer(EnvironmentToolkit, {
       );
       if (result === "other-environment")
         return yield* invalid(
-          "The user's window is showing another environment's thread, so it won't run commands from this one.",
+          `\`${command}\` runs only while the user's window shows a thread or draft from this environment.`,
         );
       if (result === "not-handled")
         return yield* invalid(

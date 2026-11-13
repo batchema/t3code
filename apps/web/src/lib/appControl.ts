@@ -1,6 +1,11 @@
 import { EnvironmentRegistry } from "@t3tools/client-runtime/connection";
 import { request, subscribeDynamic } from "@t3tools/client-runtime/rpc";
-import { type AppCommand, type AppControlResult, WS_METHODS } from "@t3tools/contracts";
+import {
+  type AppCommand,
+  type AppControlResult,
+  VIEW_ONLY_APP_COMMANDS,
+  WS_METHODS,
+} from "@t3tools/contracts";
 import type { AnyRouter } from "@tanstack/react-router";
 import * as Effect from "effect/Effect";
 import * as Stream from "effect/Stream";
@@ -14,8 +19,8 @@ import { resolveThreadRouteTarget } from "../threadRoutes";
 
 /** Runs the commands agents send this window, from every environment it is connected to. */
 export function startAppControl(router: AnyRouter): () => void {
-  // A command runs only on its own environment's screens, so an agent here can't act on a
-  // thread from another environment it has no access to.
+  // Outside view-only commands, a command runs only on its own environment's thread or draft,
+  // so an agent can't act through this window on an environment it has no access to.
   const shownEnvironmentIds = () => {
     const params: Record<string, string | undefined> = router.state.matches.at(-1)?.params ?? {};
     const target = resolveThreadRouteTarget(params);
@@ -26,8 +31,11 @@ export function startAppControl(router: AnyRouter): () => void {
     return [params.environmentId, draft?.environmentId, draft?.loadBalancedEnvironmentId];
   };
   const run = (environmentId: string, command: AppCommand): AppControlResult => {
-    if (shownEnvironmentIds().some((shown) => shown != null && shown !== environmentId))
-      return "other-environment";
+    if (!VIEW_ONLY_APP_COMMANDS.has(command)) {
+      const shown = shownEnvironmentIds().filter((id) => id != null);
+      if (shown.length === 0 || shown.some((id) => id !== environmentId))
+        return "other-environment";
+    }
     return runCommand(command) ? "ran" : "not-handled";
   };
   const focused = Effect.sync(() => ({
