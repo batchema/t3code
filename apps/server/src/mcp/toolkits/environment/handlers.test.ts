@@ -72,7 +72,10 @@ const makeLayer = Effect.fn(function* (
           issuedAt: 0,
         }),
         Layer.mock(ThreadManagement.ThreadManagementService)({
-          getThreadShell: () => Ref.get(caller).pipe(Effect.tap(() => onGetThreadShell)),
+          getThreadShell: (id) =>
+            id === threadId
+              ? Ref.get(caller).pipe(Effect.tap(() => onGetThreadShell))
+              : Effect.succeed(null),
         }),
         Layer.mock(Environment.ServerEnvironment)({
           getDescriptor: Effect.succeed({
@@ -246,5 +249,22 @@ it.effect("says when the user's window cannot run an app command", () =>
         yield* call("t3_app_command", { command: "terminal.toggle" }).pipe(Effect.provide(layer)),
       ).toMatchObject(expected);
     }
+  }),
+);
+
+it.effect("shows a thread from this environment in the user's window, and no other", () =>
+  Effect.gen(function* () {
+    const { layer, writes } = yield* makeLayer();
+    yield* Effect.gen(function* () {
+      expect(yield* call("t3_app_navigate", { to: { page: "thread", threadId } })).toEqual({
+        ran: true,
+      });
+      expect(
+        yield* call("t3_app_navigate", {
+          to: { page: "thread", threadId: ThreadId.make("thread:elsewhere") },
+        }),
+      ).toMatchObject({ code: "thread_not_found" });
+      expect(yield* Ref.get(writes)).toBe(1);
+    }).pipe(Effect.provide(layer));
   }),
 );

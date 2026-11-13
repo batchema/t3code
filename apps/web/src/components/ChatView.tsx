@@ -48,7 +48,7 @@ import { freshSessionBannerItem } from "./chat/ComposerFreshSession";
 import { armFreshSession, disarmFreshSession, useFreshSessionArmed } from "./chat/freshSessionArms";
 import { useUsageLimitsPanel } from "./chat/useUsageLimitsPanel";
 import { useWorktreeSetup } from "./chat/useWorktreeSetup";
-import { useChatShortcuts } from "./chat/useChatShortcuts";
+import { type ChatShortcutCommands, useChatShortcuts } from "./chat/useChatShortcuts";
 import { ChatBannerLane } from "./chat/ChatBannerLane";
 import * as Schema from "effect/Schema";
 import {
@@ -177,7 +177,14 @@ import {
   usePreviewMiniPlayerStore,
 } from "../previewMiniPlayerStore";
 import { threadPullRequestPanelTarget } from "./pullRequest/pullRequestDetail.logic";
-import { LinkPullRequestDialogHost } from "./pullRequest/LinkPullRequestDialog";
+import {
+  LinkPullRequestDialogHost,
+  openLinkPullRequestDialog,
+} from "./pullRequest/LinkPullRequestDialog";
+import { canShareWithGuestAtom } from "./chat/guestShareAvailability";
+import { openGuestShareDialog } from "./chat/guestShareDialogState";
+import { threadPullRequestLinkMode } from "@t3tools/client-runtime/thread-pull-request-compatibility";
+import { useRestartAgentSession } from "../hooks/useRestartAgentSession";
 import { GuestPendingMessages } from "./chat/GuestShareControls";
 import { useDeviceState } from "~/state/device";
 import { BranchToolbar, type BranchToolbarHandle } from "./BranchToolbar";
@@ -2699,6 +2706,33 @@ export default function ChatView(props: ChatViewProps) {
     }
   });
 
+  const restartAgentSession = useRestartAgentSession();
+  const canShareWithGuest = useAtomValue(canShareWithGuestAtom(environmentId));
+  // The palette offers these too, through the same shortcuts.
+  const serverThreadShortcuts: ChatShortcutCommands = {
+    "thread.restartSession": ({ event }) => {
+      if (serverThread === null) return false;
+      if (!event.repeat) void restartAgentSession(serverThread, activeProjectCwd);
+    },
+    "thread.showPullRequests": () => {
+      if (!pullRequestsSurfaceAvailable || activeThreadRef === null) return false;
+      useRightPanelStore.getState().open(activeThreadRef, "pull-requests");
+    },
+    "thread.linkPullRequest": () => {
+      if (
+        !isServerThread ||
+        activeThreadRef === null ||
+        threadPullRequestLinkMode(serverConfig?.environment.capabilities) === "unsupported"
+      )
+        return false;
+      openLinkPullRequestDialog(activeThreadRef);
+    },
+    "thread.shareWithGuest": () => {
+      if (!isServerThread || activeThreadRef === null || !canShareWithGuest) return false;
+      openGuestShareDialog(activeThreadRef);
+    },
+  };
+
   useChatShortcuts({
     enabled: activeThreadId !== null && !backgroundThread,
     embedded,
@@ -2717,6 +2751,7 @@ export default function ChatView(props: ChatViewProps) {
       ...terminalShortcuts,
       ...rightPanelShortcuts,
       ...threadLifecycleShortcuts,
+      ...serverThreadShortcuts,
       "thread.copyReference": ({ event }) => {
         if (!event.repeat) copyActiveThreadReference();
       },

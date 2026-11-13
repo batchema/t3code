@@ -1,6 +1,6 @@
 import { Schema } from "effect";
 
-import { TrimmedNonEmptyString } from "./baseSchemas.ts";
+import { ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
 import { STATIC_KEYBINDING_COMMANDS } from "./keybindings.ts";
 
 /**
@@ -55,9 +55,51 @@ const APP_COMMANDS = STATIC_KEYBINDING_COMMANDS.filter(
 export const AppCommand = Schema.Literals(APP_COMMANDS);
 export type AppCommand = typeof AppCommand.Type;
 
+const APP_SETTINGS_SECTIONS = [
+  "general",
+  "appearance",
+  "chat",
+  "diffs",
+  "keybindings",
+  "voice",
+  "snap-shot",
+  "providers",
+  "threads",
+  "projects",
+  "browser",
+  "devices",
+  "scheduled-tasks",
+  "source-control",
+  "worktrees",
+  "connections",
+  "access",
+  "secrets",
+  "maintenance",
+  "diagnostics",
+  "labs",
+  "about",
+  "archived",
+] as const;
+export const AppSettingsSection = Schema.Literals(APP_SETTINGS_SECTIONS);
+export type AppSettingsSection = typeof AppSettingsSection.Type;
+
+/** A page of the user's window. A thread is always one from the agent's environment. */
+export const AppDestination = Schema.Union([
+  Schema.Struct({ page: Schema.Literal("thread"), threadId: ThreadId }),
+  Schema.Struct({ page: Schema.Literal("settings"), section: Schema.optional(AppSettingsSection) }),
+  Schema.Struct({ page: Schema.Literals(["usage", "pull-requests"]) }),
+]);
+export type AppDestination = typeof AppDestination.Type;
+
+export const AppAction = Schema.Union([
+  Schema.TaggedStruct("command", { command: AppCommand }),
+  Schema.TaggedStruct("navigate", { to: AppDestination }),
+]);
+export type AppAction = typeof AppAction.Type;
+
 export const AppControlRequest = Schema.Struct({
   requestId: TrimmedNonEmptyString,
-  command: AppCommand,
+  action: AppAction,
 });
 export type AppControlRequest = typeof AppControlRequest.Type;
 
@@ -69,7 +111,7 @@ export type AppControlSubscribeInput = typeof AppControlSubscribeInput.Type;
 
 export const AppControlResult = Schema.Literals([
   "ran",
-  /** Nothing on screen handles the command right now. */
+  /** Nothing on screen handles the command right now, or the window has no such page. */
   "not-handled",
   /** The window isn't showing a thread or draft from the agent's environment. */
   "other-environment",

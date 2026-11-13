@@ -48,6 +48,7 @@ import {
   AuthFilesystemReadScope,
   type DesktopWslState,
   type EnvironmentId,
+  type KeybindingCommand,
   type FilesystemBrowseResult,
   SourceControlProviderKind,
   PRIMARY_LOCAL_ENVIRONMENT_ID,
@@ -118,10 +119,10 @@ import { filesystemEnvironment, useFilesystemReadAccess } from "../state/filesys
 import { projectEnvironment } from "../state/projects";
 import { useEnvironmentQuery } from "../state/query";
 import { serverEnvironment } from "../state/server";
-import { threadEnvironment } from "../state/threads";
 import { readEnvironmentScope, useEnvironmentScope } from "~/state/session";
 import { sourceControlEnvironment } from "../state/sourceControl";
 import { useAtomCommand } from "../state/use-atom-command";
+import { useRestartAgentSession } from "../hooks/useRestartAgentSession";
 import { useOrchestrationCommand } from "../state/use-orchestration-command";
 import { useAtomQueryRunner } from "../state/use-atom-query-runner";
 import { useScratchProject } from "../hooks/useScratchProject";
@@ -301,6 +302,16 @@ function openIntentView(intent: CommandPaletteOpenIntent | null): CommandPalette
 
 const NEW_THREAD_NO_PROJECT_VALUE = "new-thread-in:no-project";
 
+const PALETTE_ITEM_COMMANDS = new Set<KeybindingCommand>([
+  "chat.new",
+  "chat.newLocal",
+  "chat.newWithoutProject",
+  "thread.restartSession",
+  "thread.showPullRequests",
+  "thread.linkPullRequest",
+  "thread.shareWithGuest",
+]);
+
 export function CommandPalette({ children }: { children: ReactNode }) {
   useCommandPaletteMount();
   const state = useCommandPaletteStore();
@@ -462,12 +473,7 @@ function OpenCommandPaletteDialog(props: {
   const startProjectClone = useAtomCommand(sourceControlEnvironment.startProjectClone, {
     reportFailure: false,
   });
-  const stopThreadSession = useAtomCommand(threadEnvironment.stopSession, {
-    reportFailure: false,
-  });
-  const refreshProviders = useAtomCommand(serverEnvironment.refreshProviders, {
-    reportFailure: false,
-  });
+  const restartAgentSession = useRestartAgentSession();
   const { environments } = useEnvironments();
   const desktopLocalBootstraps = useDesktopLocalBootstraps();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
@@ -1422,6 +1428,7 @@ function OpenCommandPaletteDialog(props: {
       searchTerms: ["link", "pull request", "pr", "attach", "stack"],
       title: "Link pull request to thread",
       icon: <PullRequestGlyph.link className={ITEM_ICON_CLASS} />,
+      shortcutCommand: "thread.linkPullRequest",
       run: async () => {
         openLinkPullRequestDialog(threadRef);
       },
@@ -1433,6 +1440,7 @@ function OpenCommandPaletteDialog(props: {
       title: "Show linked pull requests",
       disabled: visibleThreadPullRequests(activeThread.pullRequests).length === 0,
       icon: <PullRequestGlyph.link className={ITEM_ICON_CLASS} />,
+      shortcutCommand: "thread.showPullRequests",
       run: async () => {
         useRightPanelStore.getState().open(threadRef, "pull-requests");
       },
@@ -1447,6 +1455,7 @@ function OpenCommandPaletteDialog(props: {
       searchTerms: ["share", "guest", "invite", "link", "teammate"],
       title: "Share with guest",
       icon: <UserPlusIcon className={ITEM_ICON_CLASS} />,
+      shortcutCommand: "thread.shareWithGuest",
       run: async () => {
         openGuestShareDialog(threadRef);
       },
@@ -1461,32 +1470,12 @@ function OpenCommandPaletteDialog(props: {
       searchTerms: ["restart", "reset", "reload", "agent", "session", "skills", "plugins", "mcp"],
       title: "Restart agent session",
       icon: <RotateCcwIcon className={ITEM_ICON_CLASS} />,
-      run: async () => {
-        const { environmentId } = thread;
-        if (thread.runtime !== null) {
-          const stopped = await stopThreadSession({
-            environmentId,
-            input: { threadId: thread.id },
-          });
-          if (stopped._tag === "Failure") throw squashAtomCommandFailure(stopped);
-        }
-        toastManager.add({
-          type: "success",
-          title: "Agent session will restart",
-          description: "Your next message starts a fresh session.",
-        });
-        const project = projectByKey.get(`${environmentId}:${thread.projectId}`);
-        if (!project) return;
-        const refreshed = await refreshProviders({
-          environmentId,
-          input: {
-            instanceId: thread.runtime?.providerInstanceId ?? thread.modelSelection.instanceId,
-            cwd: thread.worktreePath ?? project.workspaceRoot,
-            fresh: true,
-          },
-        });
-        if (refreshed._tag === "Failure") throw squashAtomCommandFailure(refreshed);
-      },
+      shortcutCommand: "thread.restartSession",
+      run: () =>
+        restartAgentSession(
+          thread,
+          projectByKey.get(`${thread.environmentId}:${thread.projectId}`)?.workspaceRoot ?? null,
+        ),
     });
   }
 
@@ -2537,16 +2526,15 @@ function OpenCommandPaletteDialog(props: {
         return;
       }
     }
-    // Global new-thread handlers ignore shortcuts while the palette is open.
+    // Global new-thread and thread handlers ignore shortcuts while the palette is open.
     const isJump = threadJumpIndexFromCommand(command ?? "") !== null;
-    const isNewThread =
+    const isItemCommand =
       !event.nativeEvent.isComposing &&
       event.keyCode !== 229 &&
-      (command === "chat.new" ||
-        command === "chat.newLocal" ||
-        command === "chat.newWithoutProject");
+      command !== null &&
+      PALETTE_ITEM_COMMANDS.has(command);
     const matchingItem =
-      isJump || isNewThread
+      isJump || isItemCommand
         ? displayedGroups
             .flatMap((group) => group.items)
             .find((item) => item.shortcutCommand === command)

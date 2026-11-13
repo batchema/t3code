@@ -1,8 +1,10 @@
 import { EnvironmentRegistry } from "@t3tools/client-runtime/connection";
 import { request, subscribeDynamic } from "@t3tools/client-runtime/rpc";
 import {
+  type AppAction,
   type AppCommand,
   type AppControlResult,
+  type AppDestination,
   VIEW_ONLY_APP_COMMANDS,
   WS_METHODS,
 } from "@t3tools/contracts";
@@ -12,6 +14,8 @@ import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 
 import { useComposerDraftStore } from "../composerDraftStore";
+import { readPullRequestListPreferences } from "../components/pullRequest/pullRequestListPreferences";
+import type { SettingsPath } from "../components/settings/settingsSearch";
 import { connectionAtomRuntime } from "../connection/runtime";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { runCommand } from "../shortcuts/dispatcher";
@@ -38,6 +42,34 @@ export function startAppControl(router: AnyRouter): () => void {
     }
     return runCommand(command) ? "ran" : "not-handled";
   };
+  const navigate = (environmentId: string, to: AppDestination): AppControlResult => {
+    switch (to.page) {
+      case "thread":
+        void router.navigate({
+          to: "/$environmentId/$threadId",
+          params: { environmentId, threadId: to.threadId },
+        });
+        break;
+      case "settings": {
+        const path: SettingsPath | "/settings" = to.section
+          ? `/settings/${to.section}`
+          : "/settings";
+        void router.navigate({ to: path });
+        break;
+      }
+      case "usage":
+        void router.navigate({ to: "/usage" });
+        break;
+      case "pull-requests":
+        void router.navigate({ to: "/pull-requests", search: readPullRequestListPreferences() });
+        break;
+    }
+    return "ran";
+  };
+  const act = (environmentId: string, action: AppAction) =>
+    action._tag === "command"
+      ? run(environmentId, action.command)
+      : navigate(environmentId, action.to);
   const focused = Effect.sync(() => ({
     focused: document.hasFocus() && document.visibilityState === "visible",
   }));
@@ -56,10 +88,10 @@ export function startAppControl(router: AnyRouter): () => void {
               registry.followStream(
                 environmentId,
                 subscribeDynamic(WS_METHODS.subscribeAppControl, () => focused).pipe(
-                  Stream.mapEffect(({ requestId, command }) =>
+                  Stream.mapEffect(({ requestId, action }) =>
                     request(WS_METHODS.appControlRespond, {
                       requestId,
-                      result: run(environmentId, command),
+                      result: act(environmentId, action),
                     }).pipe(Effect.ignoreCause),
                   ),
                   Stream.ignoreCause,

@@ -1,7 +1,11 @@
 import { HOSTED_APP_CHANNEL } from "~/branding";
 import { isElectron, isSecretsFeatureEnabled } from "~/env";
 import { isMacPlatform, isWindowsPlatform, normalizeSearchText } from "~/lib/utils";
-import { STATIC_KEYBINDING_COMMANDS, type KeybindingCommand } from "@t3tools/contracts";
+import {
+  type AppSettingsSection,
+  STATIC_KEYBINDING_COMMANDS,
+  type KeybindingCommand,
+} from "@t3tools/contracts";
 import type { EnvironmentId } from "@t3tools/contracts";
 import type { EnvironmentConnectionPhase } from "@t3tools/client-runtime/connection";
 import {
@@ -15,30 +19,8 @@ import { writeLocalStorageValue } from "../../hooks/useLocalStorage";
 import { commandLabel } from "./KeybindingsSettings.logic";
 import type { ResolvedSettingsScope } from "./settingsScope";
 
-export type SettingsPath =
-  | "/settings/projects"
-  | "/settings/general"
-  | "/settings/diagnostics"
-  | "/settings/voice"
-  | "/settings/appearance"
-  | "/settings/chat"
-  | "/settings/diffs"
-  | "/settings/keybindings"
-  | "/settings/snap-shot"
-  | "/settings/providers"
-  | "/settings/threads"
-  | "/settings/browser"
-  | "/settings/devices"
-  | "/settings/scheduled-tasks"
-  | "/settings/source-control"
-  | "/settings/worktrees"
-  | "/settings/connections"
-  | "/settings/access"
-  | "/settings/secrets"
-  | "/settings/maintenance"
-  | "/settings/labs"
-  | "/settings/about"
-  | "/settings/archived";
+/** Agents open these sections too, so the list lives in contracts. */
+export type SettingsPath = `/settings/${AppSettingsSection}`;
 
 export type SettingsSearchScope =
   | "environment"

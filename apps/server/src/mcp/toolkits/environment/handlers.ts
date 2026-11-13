@@ -1,4 +1,5 @@
 import {
+  type AppAction,
   AppCommand,
   KeybindingRule,
   OrchestratorMcpFailure,
@@ -19,7 +20,8 @@ import * as ThreadCommandExecutor from "../../../orchestration-v2/ThreadCommandE
 import * as Settings from "../../../serverSettings.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
-import { readCaller, unavailable } from "../../threadAccess.ts";
+import * as ThreadManagement from "../../../orchestration-v2/ThreadManagementService.ts";
+import { readCaller, threadNotFound, unavailable } from "../../threadAccess.ts";
 import { EnvironmentToolkit } from "./tools.ts";
 
 export function preferences(settings: ServerSettings) {
@@ -118,6 +120,28 @@ const access = Effect.gen(function* () {
     keybindings: yield* Keybindings.Keybindings,
     appControl: yield* AppControl.AppControl,
   };
+});
+
+/** Runs an action in the user's window, failing with `refusals` when the window declines it. */
+const runInWindow = Effect.fn("EnvironmentTools.runInWindow")(function* (
+  appControl: AppControl.AppControl["Service"],
+  action: AppAction,
+  refusals: Record<"other-environment" | "not-handled", string>,
+) {
+  const failed = (message: string) =>
+    Effect.fail(new OrchestratorMcpFailure({ code: "orchestration_error", message }));
+  const result = yield* appControl.run(action).pipe(
+    Effect.catchTags({
+      AppControlNoWindowError: () =>
+        failed("No T3 Code window is open on this environment. Mobile apps don't take commands."),
+      AppControlTimeoutError: () =>
+        failed(
+          "The user's window didn't answer. It may still act when it wakes, so check before retrying.",
+        ),
+    }),
+  );
+  if (result !== "ran") return yield* invalid(refusals[result]);
+  return { ran: true };
 });
 
 /** Runs a write under the caller thread's lock, rechecking access once the lock is held. */
@@ -257,29 +281,37 @@ export const layer = McpToolAccess.toLayer(EnvironmentToolkit, {
         ),
       );
       const { appControl } = yield* access;
-      const failed = (message: string) =>
-        Effect.fail(new OrchestratorMcpFailure({ code: "orchestration_error", message }));
-      const result = yield* appControl.run(appCommand).pipe(
-        Effect.catchTags({
-          AppControlNoWindowError: () =>
-            failed(
-              "No T3 Code window is open on this environment. Mobile apps don't take commands.",
-            ),
-          AppControlTimeoutError: () =>
-            failed(
-              "The user's window didn't answer. It may still run the command when it wakes, so check before retrying.",
-            ),
-        }),
+      return yield* runInWindow(
+        appControl,
+        { _tag: "command", command: appCommand },
+        {
+          "other-environment": `\`${command}\` runs only while the user's window shows a thread or draft from this environment.`,
+          "not-handled": `Nothing in the user's window handles \`${command}\` right now, such as a thread command outside a thread.`,
+        },
       );
-      if (result === "other-environment")
-        return yield* invalid(
-          `\`${command}\` runs only while the user's window shows a thread or draft from this environment.`,
-        );
-      if (result === "not-handled")
-        return yield* invalid(
-          `Nothing in the user's window handles \`${command}\` right now, such as a thread command outside a thread.`,
-        );
-      return { ran: true };
+    }),
+  ),
+  t3_app_navigate: McpToolAccess.writesEnvironment(({ to }) =>
+    Effect.gen(function* () {
+      const { appControl } = yield* access;
+      if (to.page === "thread") {
+        const threads = yield* ThreadManagement.ThreadManagementService;
+        const shell = yield* threads.getThreadShell(to.threadId).pipe(Effect.mapError(unavailable));
+        if (shell === null || shell.deletedAt !== null)
+          return yield* threadNotFound(
+            threads,
+            to.threadId,
+            `Thread ${to.threadId} was not found.`,
+          );
+      }
+      return yield* runInWindow(
+        appControl,
+        { _tag: "navigate", to },
+        {
+          "other-environment": "The user's window can't show that page.",
+          "not-handled": "The user's window can't show that page.",
+        },
+      );
     }),
   ),
 });
