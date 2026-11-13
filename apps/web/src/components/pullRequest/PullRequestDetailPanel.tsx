@@ -158,6 +158,7 @@ import {
 import { PullRequestGuideTab } from "./PullRequestGuideTab";
 import { guideRunKey, useGuideRunStore } from "./guide/guideRunStore";
 import { useReviewGuideWriter } from "./guide/useReviewGuideWriter";
+import { registerCommandRunner } from "~/shortcuts/dispatcher";
 
 const actionFailureLabels = (term: string): Record<PullRequestAction, string> => ({
   merge: `Could not merge this ${term}`,
@@ -483,6 +484,15 @@ export function PullRequestDetailPanel({
         description: error.message,
       }),
   });
+  const copyNumber = useEffectEvent(() =>
+    copyReference(`#${reference.number}`, `${terminology.shortLabel} number`),
+  );
+  const runCopyNumber = useEffectEvent((command: string) => {
+    if (command !== "pullRequest.copyNumber" || !shortcutsEnabled || isCommandPaletteOpen())
+      return false;
+    copyNumber();
+    return true;
+  });
   const copyFromShortcut = useEffectEvent((event: KeyboardEvent) => {
     if (!shortcutsEnabled || event.defaultPrevented || isCommandPaletteOpen()) return;
     const command = resolveShortcutCommand(event, keybindings, {
@@ -491,13 +501,17 @@ export function PullRequestDetailPanel({
     if (command !== "pullRequest.copyNumber") return;
     event.preventDefault();
     event.stopPropagation();
-    if (!event.repeat) copyReference(`#${reference.number}`, `${terminology.shortLabel} number`);
+    if (!event.repeat) copyNumber();
   });
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- window keydown capture listener for the copy-number shortcut
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => copyFromShortcut(event);
     window.addEventListener("keydown", onKeyDown, true);
-    return () => window.removeEventListener("keydown", onKeyDown, true);
+    const unregisterRunner = registerCommandRunner((command) => runCopyNumber(command));
+    return () => {
+      window.removeEventListener("keydown", onKeyDown, true);
+      unregisterRunner();
+    };
   }, []);
   const autoMergeKey = `${pullRequestKey}:${detail?.autoMergeMethod ?? ""}`;
   const [seenAutoMergeKey, setSeenAutoMergeKey] = useState<string | null>(null);

@@ -110,6 +110,41 @@ function pushScope(list: CommandScope[], scope: CommandScope): () => void {
   };
 }
 
+type CommandRunner = (command: KeybindingCommand) => boolean;
+const commandRunners: CommandRunner[] = [];
+
+/**
+ * For views that match their own shortcuts (the chat, the sidebar), so `runCommand` reaches
+ * them too. A runner returns whether it ran the command.
+ */
+export function registerCommandRunner(runner: CommandRunner): () => void {
+  commandRunners.push(runner);
+  return () => {
+    const index = commandRunners.lastIndexOf(runner);
+    if (index !== -1) commandRunners.splice(index, 1);
+  };
+}
+
+/**
+ * Runs a command as its shortcut would, without a key press. Returns false when nothing
+ * on screen handles it right now, such as a thread command outside a thread.
+ */
+export function runCommand(command: KeybindingCommand): boolean {
+  for (let index = commandRunners.length - 1; index >= 0; index -= 1) {
+    if (commandRunners[index]?.(command)) return true;
+  }
+  const event = new KeyboardEvent("keydown", { cancelable: true });
+  for (const scopes of [captureScopes, globalScopes]) {
+    for (let index = scopes.length - 1; index >= 0; index -= 1) {
+      const scope = scopes[index];
+      const handler = scope?.commands[command];
+      if (handler === undefined || scope?.options.when?.(event) === false) continue;
+      if (handler(event) !== false) return true;
+    }
+  }
+  return false;
+}
+
 /** App-global commands, registered once at module level or bootstrap. */
 export function registerCommands(
   commands: CommandHandlers,

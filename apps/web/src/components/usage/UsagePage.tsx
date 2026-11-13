@@ -106,6 +106,7 @@ import {
   saveUsagePagePreferences,
   type UsagePagePreferences,
 } from "./usagePagePreferences";
+import { registerCommandRunner } from "../../shortcuts/dispatcher";
 
 function isUsageMetric(value: string | null | undefined): value is UsageMetric {
   return METRIC_OPTIONS.some((option) => option.value === value);
@@ -266,6 +267,14 @@ export function UsagePage() {
       setLimitsNow(Date.now());
       if (!AsyncResult.isSuccess(result)) throw Cause.squash(result.cause);
     });
+  const runUsageCommand = useEffectEvent((command: string | null) => {
+    const metricOption = METRIC_OPTIONS.find((option) => option.command === command);
+    const periodOption = WINDOW_OPTIONS.find((option) => option.command === command);
+    if (!metricOption && !periodOption) return false;
+    if (metricOption) selectMetric(metricOption.value);
+    if (periodOption && !showingLimits) selectWindow(periodOption.days);
+    return true;
+  });
   const onUsageKeyDown = useEffectEvent((event: KeyboardEvent) => {
     if (
       event.defaultPrevented ||
@@ -276,21 +285,21 @@ export function UsagePage() {
     )
       return;
 
-    const command = resolveUsageShortcut(event, keybindings);
-    const metricOption = METRIC_OPTIONS.find((option) => option.command === command);
-    const periodOption = WINDOW_OPTIONS.find((option) => option.command === command);
-    if (!metricOption && !periodOption) return;
-
+    if (!runUsageCommand(resolveUsageShortcut(event, keybindings))) return;
     event.preventDefault();
     event.stopPropagation();
-    if (metricOption) selectMetric(metricOption.value);
-    if (periodOption && !showingLimits) selectWindow(periodOption.days);
   });
 
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- window capture keydown listener for usage metric and period shortcuts
   useEffect(() => {
     globalThis.window.addEventListener("keydown", onUsageKeyDown, true);
-    return () => globalThis.window.removeEventListener("keydown", onUsageKeyDown, true);
+    const unregisterRunner = registerCommandRunner(
+      (command) => !isCommandPaletteOpen() && runUsageCommand(command),
+    );
+    return () => {
+      globalThis.window.removeEventListener("keydown", onUsageKeyDown, true);
+      unregisterRunner();
+    };
   }, []);
 
   const refreshWindow = () => {

@@ -229,6 +229,7 @@ import * as DirectEndpoints from "./environment/DirectEndpoints.ts";
 import * as RemoteOpenTargets from "./environment/RemoteOpenTargets.ts";
 import * as DefectReporter from "./observability/DefectReporter.ts";
 import * as EventLoopMonitor from "./observability/EventLoopMonitor.ts";
+import * as AppControl from "./appControl/AppControl.ts";
 import * as BackgroundPolicy from "./background/BackgroundPolicy.ts";
 import * as EnvironmentAuth from "./auth/EnvironmentAuth.ts";
 import { requiredScopeForDeviceList, rpcAuthorizationError } from "./auth/RpcAuthorization.ts";
@@ -1457,10 +1458,10 @@ export const layerWsRpc = (
         yield* Effect.context<Effect.Services<ReturnType<typeof remoteSshDeviceHosts>>>();
       const orchestrationEngine = yield* Orchestrator.OrchestratorV2;
       const random = yield* SecureRandom.SecureRandom;
-      // RPC client ids are only unique within one socket; terminals share viewers across sockets.
-      const terminalViewerPrefix = yield* random.uuidV4();
-      const terminalViewerId = (metadata: { readonly client: { readonly id: number } }) =>
-        `${terminalViewerPrefix}:${metadata.client.id}`;
+      // RPC client ids are only unique within one socket; terminals and app windows span sockets.
+      const socketPrefix = yield* random.uuidV4();
+      const socketClientId = (metadata: { readonly client: { readonly id: number } }) =>
+        `${socketPrefix}:${metadata.client.id}`;
       const serverCommandId = (tag: string) =>
         random.uuidV4().pipe(
           Effect.orDie,
@@ -1497,6 +1498,7 @@ export const layerWsRpc = (
       const vcsStatusBroadcaster = yield* VcsStatusBroadcaster.VcsStatusBroadcaster;
       const terminalManager = yield* TerminalManager.TerminalManager;
       const previewManager = yield* PreviewManager.PreviewManager;
+      const appControl = yield* AppControl.AppControl;
       const portDiscovery = yield* PortScanner.PortDiscovery;
       const providerRegistry = yield* ProviderRegistry.ProviderRegistry;
       const providerInstances = yield* ProviderInstanceRegistry.ProviderInstanceRegistry;
@@ -2757,6 +2759,12 @@ export const layerWsRpc = (
                 input,
               ),
             ),
+            Effect.andThen(
+              appControl.reportFocus(
+                { sessionId: currentSessionId, windowId: socketClientId(metadata) },
+                input.focused && input.visible,
+              ),
+            ),
           ),
         [WS_METHODS.cloudGetRelayClientStatus]: (_input) => relayClient.resolve,
         [WS_METHODS.cloudInstallRelayClient]: (_input) =>
@@ -3222,10 +3230,10 @@ export const layerWsRpc = (
         [WS_METHODS.reviewGetDiffFileContents]: (input) => review.getDiffFileContents(input),
         [WS_METHODS.terminalOpen]: (input) => terminalManager.open(input),
         [WS_METHODS.terminalAttach]: (input, metadata) =>
-          terminalManager.attachOutputStream(input, terminalViewerId(metadata)),
+          terminalManager.attachOutputStream(input, socketClientId(metadata)),
         [WS_METHODS.terminalWrite]: (input) => terminalManager.write(input),
         [WS_METHODS.terminalResize]: (input, metadata) =>
-          terminalManager.resize(input, terminalViewerId(metadata)),
+          terminalManager.resize(input, socketClientId(metadata)),
         [WS_METHODS.terminalClear]: (input) => terminalManager.clear(input),
         [WS_METHODS.terminalClose]: (input) => terminalManager.close(input),
         [WS_METHODS.terminalObserve]: (input) =>
@@ -3251,6 +3259,14 @@ export const layerWsRpc = (
         [WS_METHODS.previewReportProfiles]: (input) => reportProfiles(input),
         [WS_METHODS.previewReportStatus]: (input) => previewManager.reportStatus(input),
         [WS_METHODS.subscribePreviewEvents]: (_input) => previewManager.events,
+        [WS_METHODS.subscribeAppControl]: (input, metadata) =>
+          Stream.unwrap(
+            appControl.connect(
+              { sessionId: currentSessionId, windowId: socketClientId(metadata) },
+              input.focused,
+            ),
+          ),
+        [WS_METHODS.appControlRespond]: (input) => appControl.respond(currentSessionId, input),
         [WS_METHODS.deviceConfigure]: (input) => deviceService.configure(input),
         [WS_METHODS.deviceTestHost]: (input) => deviceService.testHost(input),
         [WS_METHODS.deviceEasAccount]: (input) => deviceService.easAccount(input),

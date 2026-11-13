@@ -1,4 +1,5 @@
 import {
+  AppCommand,
   KeybindingRule,
   OrchestratorMcpFailure,
   ProjectId,
@@ -11,6 +12,7 @@ import { compileResolvedKeybindingRule } from "@t3tools/shared/keybindings";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
+import * as AppControl from "../../../appControl/AppControl.ts";
 import * as Environment from "../../../environment/ServerEnvironment.ts";
 import * as Keybindings from "../../../keybindings.ts";
 import * as ThreadCommandExecutor from "../../../orchestration-v2/ThreadCommandExecutor.ts";
@@ -50,6 +52,7 @@ const invalid = (message: string) =>
 const decodePatch = Schema.decodeUnknownEffect(ServerSettingsPatch);
 const encodeSettings = Schema.encodeEffect(ServerSettings);
 const decodeKeybinding = Schema.decodeUnknownEffect(KeybindingRule);
+const decodeAppCommand = Schema.decodeUnknownEffect(AppCommand);
 
 const settingsView = (settings: ServerSettings, keys: ReadonlyArray<string> | undefined) =>
   encodeSettings(Settings.redactServerSettingsForClient(settings, { secretReferences: true })).pipe(
@@ -113,6 +116,7 @@ const access = Effect.gen(function* () {
     descriptor,
     settings: yield* Settings.ServerSettingsService,
     keybindings: yield* Keybindings.Keybindings,
+    appControl: yield* AppControl.AppControl,
   };
 });
 
@@ -242,5 +246,40 @@ export const layer = McpToolAccess.toLayer(EnvironmentToolkit, {
         };
       }),
     ),
+  ),
+  t3_app_command: McpToolAccess.writesEnvironment(({ command }) =>
+    Effect.gen(function* () {
+      const appCommand = yield* decodeAppCommand(command).pipe(
+        Effect.mapError(() =>
+          invalid(
+            "Unknown command, or one only the user may run. `t3_keybindings_read` lists them.",
+          ),
+        ),
+      );
+      const { appControl } = yield* access;
+      const failed = (message: string) =>
+        Effect.fail(new OrchestratorMcpFailure({ code: "orchestration_error", message }));
+      const result = yield* appControl.run(appCommand).pipe(
+        Effect.catchTags({
+          AppControlNoWindowError: () =>
+            failed(
+              "No T3 Code window is open on this environment. Mobile apps don't take commands.",
+            ),
+          AppControlTimeoutError: () =>
+            failed(
+              "The user's window didn't answer. It may still run the command when it wakes, so check before retrying.",
+            ),
+        }),
+      );
+      if (result === "other-environment")
+        return yield* invalid(
+          `\`${command}\` runs only while the user's window shows a thread or draft from this environment.`,
+        );
+      if (result === "not-handled")
+        return yield* invalid(
+          `Nothing in the user's window handles \`${command}\` right now, such as a thread command outside a thread.`,
+        );
+      return { ran: true };
+    }),
   ),
 });

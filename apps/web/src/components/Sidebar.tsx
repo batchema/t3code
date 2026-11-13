@@ -100,6 +100,7 @@ import { useShortcutModifierState } from "../shortcutModifierState";
 import { isTerminalFocused } from "../lib/terminalFocus";
 import { isPreviewFocused } from "../lib/previewFocus";
 import { isModelPickerOpen } from "../modelPickerVisibility";
+import { registerCommandRunner } from "../shortcuts/dispatcher";
 import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../terminalUiStateStore";
 import { selectActiveRightPanel, useRightPanelStore } from "../rightPanelStore";
 import { isMacPlatform } from "~/lib/utils";
@@ -2889,6 +2890,27 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   );
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- subscribes to window keydown for thread navigation shortcuts using the current thread list
   useEffect(() => {
+    const navigateToThreadKey = (targetThreadKey: string | null) => {
+      if (!targetThreadKey) return false;
+      const targetThread = threadByKey.get(targetThreadKey);
+      if (!targetThread) return false;
+      navigateToThread(scopeThreadRef(targetThread.environmentId, targetThread.id));
+      return true;
+    };
+    const runThreadCommand = (command: string | null) => {
+      const traversalDirection = threadTraversalDirectionFromCommand(command);
+      if (traversalDirection !== null) {
+        return navigateToThreadKey(
+          resolveAdjacentThreadId({
+            threadIds: orderedThreadKeys,
+            currentThreadId: routeRowThreadKey,
+            direction: traversalDirection,
+          }),
+        );
+      }
+      const jumpIndex = threadJumpIndexFromCommand(command ?? "");
+      return jumpIndex !== null && navigateToThreadKey(orderedThreadKeys[jumpIndex] ?? null);
+    };
     const onWindowKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.repeat || isCommandPaletteOpen() || isModelPickerOpen()) {
         return;
@@ -2905,32 +2927,18 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
           isDesktop: isElectron,
         },
       });
-      const navigateToThreadKey = (targetThreadKey: string | null) => {
-        if (!targetThreadKey) return false;
-        const targetThread = threadByKey.get(targetThreadKey);
-        if (!targetThread) return false;
-        event.preventDefault();
-        event.stopPropagation();
-        navigateToThread(scopeThreadRef(targetThread.environmentId, targetThread.id));
-        return true;
-      };
-      const traversalDirection = threadTraversalDirectionFromCommand(command);
-      if (traversalDirection !== null) {
-        navigateToThreadKey(
-          resolveAdjacentThreadId({
-            threadIds: orderedThreadKeys,
-            currentThreadId: routeRowThreadKey,
-            direction: traversalDirection,
-          }),
-        );
-        return;
-      }
-      const jumpIndex = threadJumpIndexFromCommand(command ?? "");
-      if (jumpIndex === null) return;
-      navigateToThreadKey(orderedThreadKeys[jumpIndex] ?? null);
+      if (!runThreadCommand(command)) return;
+      event.preventDefault();
+      event.stopPropagation();
     };
     window.addEventListener("keydown", onWindowKeyDown);
-    return () => window.removeEventListener("keydown", onWindowKeyDown);
+    const unregisterRunner = registerCommandRunner(
+      (command) => !isCommandPaletteOpen() && runThreadCommand(command),
+    );
+    return () => {
+      window.removeEventListener("keydown", onWindowKeyDown);
+      unregisterRunner();
+    };
   }, [
     keybindings,
     navigateToThread,

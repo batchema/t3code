@@ -82,6 +82,11 @@ import {
   AuthAccessStreamEvent,
   EnvironmentAuthorizationError,
 } from "./auth.ts";
+import {
+  AppControlRequest,
+  AppControlResponseInput,
+  AppControlSubscribeInput,
+} from "./appControl.ts";
 import { ClientActivityReportInput } from "./background.ts";
 import {
   FilesystemGetMetadataInput,
@@ -618,6 +623,8 @@ export const WS_METHODS = {
   worktreeSetupCancel: "worktreeSetup.cancel",
   subscribeTerminalMetadata: "subscribeTerminalMetadata",
   subscribePreviewEvents: "subscribePreviewEvents",
+  subscribeAppControl: "subscribeAppControl",
+  appControlRespond: "appControl.respond",
   subscribeDiscoveredLocalServers: "subscribeDiscoveredLocalServers",
   subscribeDeviceState: "subscribeDeviceState",
   subscribeServerConfig: "subscribeServerConfig",
@@ -1690,6 +1697,18 @@ const WsSubscribePreviewEventsRpc = Rpc.make(WS_METHODS.subscribePreviewEvents, 
   stream: true,
 });
 
+const WsSubscribeAppControlRpc = Rpc.make(WS_METHODS.subscribeAppControl, {
+  payload: AppControlSubscribeInput,
+  success: AppControlRequest,
+  error: EnvironmentAuthorizationError,
+  stream: true,
+});
+
+const WsAppControlRespondRpc = Rpc.make(WS_METHODS.appControlRespond, {
+  payload: AppControlResponseInput,
+  error: EnvironmentAuthorizationError,
+});
+
 const WsPreviewStopLocalServerRpc = Rpc.make(WS_METHODS.previewStopLocalServer, {
   payload: PreviewStopLocalServerInput,
   error: Schema.Union([PreviewStopLocalServerError, EnvironmentAuthorizationError]),
@@ -2243,6 +2262,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsPreviewReportProfilesRpc,
   WsPreviewReportStatusRpc,
   WsSubscribePreviewEventsRpc,
+  WsSubscribeAppControlRpc,
+  WsAppControlRespondRpc,
   WsPreviewStopLocalServerRpc,
   WsSubscribeDiscoveredLocalServersRpc,
   WsDeviceConfigureRpc,
