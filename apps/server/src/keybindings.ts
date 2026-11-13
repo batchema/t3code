@@ -1,4 +1,5 @@
 import {
+  type KeybindingCommand,
   KeybindingRule,
   KeybindingsConfigError,
   KeybindingShortcut,
@@ -82,7 +83,7 @@ export const ResolvedKeybindingFromConfig = KeybindingRule.pipe(
 
 // Settings sends replace/remove targets in its own normalized spelling, which can differ from a
 // hand-edited file ("cmd+k" vs "meta+k", "a&&b" vs "a && b"), so compare parsed forms.
-function keybindingRuleIdentity(rule: KeybindingRule): string {
+function keybindingRuleIdentity(rule: KeybindingRuleText): string {
   const shortcut = parseKeybindingShortcut(rule.key);
   const key = (shortcut && encodeShortcut(shortcut)) ?? rule.key;
   if (rule.when === undefined) return JSON.stringify([rule.command, key, null]);
@@ -90,8 +91,26 @@ function keybindingRuleIdentity(rule: KeybindingRule): string {
   return JSON.stringify([rule.command, key, whenAst ? encodeWhenAst(whenAst) : rule.when]);
 }
 
-function isSameKeybindingRule(left: KeybindingRule, right: KeybindingRule): boolean {
+interface KeybindingRuleText {
+  readonly key: string;
+  readonly command: string;
+  readonly when?: string | undefined;
+}
+
+export function isSameKeybindingRule(left: KeybindingRuleText, right: KeybindingRuleText): boolean {
   return keybindingRuleIdentity(left) === keybindingRuleIdentity(right);
+}
+
+/** Text form of a loaded rule. Unlike the config schema it has no length limit, so any loaded rule renders. */
+export function keybindingRuleText(rule: ResolvedKeybindingRule): {
+  readonly key: string;
+  readonly command: KeybindingCommand;
+  readonly when?: string;
+} {
+  const key = encodeShortcut(rule.shortcut) ?? rule.shortcut.key;
+  return rule.whenAst === undefined
+    ? { key, command: rule.command }
+    : { key, command: rule.command, when: encodeWhenAst(rule.whenAst) };
 }
 
 const LATE_DEFAULT_KEYBINDINGS: ReadonlyArray<{
@@ -160,17 +179,26 @@ function encodeShortcut(shortcut: KeybindingShortcut): string | null {
   return [...modifiers, key].join("+");
 }
 
+// Parenthesizes only where the parser needs it to rebuild the same tree, so a rule read back fits
+// the length limit its stored form did: `&&` binds tighter than `||`, and both group left to right.
 function encodeWhenAst(node: KeybindingWhenNode): string {
   switch (node.type) {
     case "identifier":
       return node.name;
     case "not":
-      return `!(${encodeWhenAst(node.node)})`;
+      return `!${encodeWhenOperand(node.node, ["identifier", "not"])}`;
     case "and":
-      return `(${encodeWhenAst(node.left)} && ${encodeWhenAst(node.right)})`;
+      return `${encodeWhenOperand(node.left, ["identifier", "not", "and"])} && ${encodeWhenOperand(node.right, ["identifier", "not"])}`;
     case "or":
-      return `(${encodeWhenAst(node.left)} || ${encodeWhenAst(node.right)})`;
+      return `${encodeWhenAst(node.left)} || ${encodeWhenOperand(node.right, ["identifier", "not", "and"])}`;
   }
+}
+
+function encodeWhenOperand(
+  node: KeybindingWhenNode,
+  bare: ReadonlyArray<KeybindingWhenNode["type"]>,
+): string {
+  return bare.includes(node.type) ? encodeWhenAst(node) : `(${encodeWhenAst(node)})`;
 }
 
 const RawKeybindingsEntries = fromLenientJson(Schema.Array(Schema.Unknown));

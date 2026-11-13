@@ -1,11 +1,13 @@
 import { expect, it } from "@effect/vitest";
 import {
-  DEFAULT_SERVER_SETTINGS,
   EnvironmentId,
+  ProjectId,
   ProviderInstanceId,
   ThreadId,
   type OrchestrationV2ThreadShell,
+  type ServerSettings,
 } from "@t3tools/contracts";
+import { compileResolvedKeybindingsConfig, DEFAULT_KEYBINDINGS } from "@t3tools/shared/keybindings";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
@@ -14,6 +16,7 @@ import * as Ref from "effect/Ref";
 import * as Stream from "effect/Stream";
 
 import * as Environment from "../../../environment/ServerEnvironment.ts";
+import * as Keybindings from "../../../keybindings.ts";
 import * as ThreadCommandExecutor from "../../../orchestration-v2/ThreadCommandExecutor.ts";
 import * as ThreadManagement from "../../../orchestration-v2/ThreadManagementService.ts";
 import * as Settings from "../../../serverSettings.ts";
@@ -26,46 +29,87 @@ import { EnvironmentToolkit } from "./tools.ts";
 const environmentId = EnvironmentId.make("environment:preferences");
 const threadId = ThreadId.make("thread:preferences");
 
-it.effect("refuses a preferences update when the caller's turn ends while it waits", () =>
-  Effect.gen(function* () {
-    const caller = yield* Ref.make<OrchestrationV2ThreadShell>(liveThreadShell(threadId));
-    const updates = yield* Ref.make(0);
-    const checked = yield* Deferred.make<void>();
-    const layerDependencies = Layer.mergeAll(
-      ThreadCommandExecutor.layer,
-      Layer.succeed(McpInvocationContext.McpInvocationContext, {
-        environmentId,
-        requestNamespace: "provider:preferences",
-        thread: {
-          threadId,
-          providerSessionId: "provider:preferences",
-          providerInstanceId: ProviderInstanceId.make("codex"),
-        },
-        client: undefined,
-        capabilities: new Set(["orchestration" as const]),
-        issuedAt: 0,
-      }),
-      Layer.mock(ThreadManagement.ThreadManagementService)({
-        getThreadShell: () =>
-          Ref.get(caller).pipe(Effect.tap(() => Deferred.succeed(checked, undefined))),
-      }),
-      Layer.mock(Environment.ServerEnvironment)({
-        getDescriptor: Effect.succeed({
+const projectId = ProjectId.make("project:preferences");
+// Valid at the 256-character limit; a fully parenthesized re-encoding would exceed it.
+const longWhen = Array.from({ length: 15 }, () => "terminalFocus").join(" && ");
+const longRule = { key: "mod+alt+k", command: "terminal.toggle" as const, when: longWhen };
+
+const makeLayer = Effect.fn(function* (
+  options: {
+    readonly onGetThreadShell?: Effect.Effect<void>;
+    readonly settings?: Parameters<typeof Settings.ServerSettingsService.layerTest>[0];
+  } = {},
+) {
+  const { onGetThreadShell = Effect.void, settings = {} } = options;
+  const caller = yield* Ref.make<OrchestrationV2ThreadShell>(liveThreadShell(threadId));
+  const writes = yield* Ref.make(0);
+  const write = <A>(value: A) => Ref.update(writes, (count) => count + 1).pipe(Effect.as(value));
+  const snapshot = {
+    keybindings: compileResolvedKeybindingsConfig([...DEFAULT_KEYBINDINGS, longRule]),
+    issues: [],
+  };
+  const layer = McpToolAccess.HandlersLayer.layer(EnvironmentHandlers.layer).pipe(
+    Layer.provideMerge(
+      Layer.mergeAll(
+        ThreadCommandExecutor.layer,
+        Layer.succeed(McpInvocationContext.McpInvocationContext, {
           environmentId,
-          label: "Test",
-          platform: { os: "linux", arch: "x64" },
-          serverVersion: "0.0.0",
-          capabilities: { repositoryIdentity: false },
+          requestNamespace: "provider:preferences",
+          thread: {
+            threadId,
+            providerSessionId: "provider:preferences",
+            providerInstanceId: ProviderInstanceId.make("codex"),
+          },
+          client: undefined,
+          capabilities: new Set(["orchestration" as const]),
+          issuedAt: 0,
         }),
-      }),
-      Layer.mock(Settings.ServerSettingsService)({
-        getSettings: Effect.succeed(DEFAULT_SERVER_SETTINGS),
-        updateSettings: () =>
-          Ref.update(updates, (count) => count + 1).pipe(Effect.as(DEFAULT_SERVER_SETTINGS)),
-      }),
-    );
+        Layer.mock(ThreadManagement.ThreadManagementService)({
+          getThreadShell: () => Ref.get(caller).pipe(Effect.tap(() => onGetThreadShell)),
+        }),
+        Layer.mock(Environment.ServerEnvironment)({
+          getDescriptor: Effect.succeed({
+            environmentId,
+            label: "Test",
+            platform: { os: "linux", arch: "x64" },
+            serverVersion: "0.0.0",
+            capabilities: { repositoryIdentity: false },
+          }),
+        }),
+        Settings.ServerSettingsService.layerTest(settings),
+        Layer.mock(Keybindings.Keybindings)({
+          getSnapshot: Effect.succeed(snapshot),
+          upsertKeybindingRule: () => write(snapshot),
+          removeKeybindingRule: () => write(snapshot),
+        }),
+      ),
+    ),
+  );
+  return { caller, writes, layer };
+});
+
+const call = (...[name, params]: Parameters<Effect.Success<typeof EnvironmentToolkit>["handle"]>) =>
+  EnvironmentToolkit.pipe(
+    Effect.flatMap((toolkit) =>
+      toolkit.handle(name, params).pipe(Stream.unwrap, Stream.runCollect),
+    ),
+    Effect.map((results) => results.at(-1)?.result),
+  );
+
+const unchangedSettings = (expected: ServerSettings) =>
+  Settings.ServerSettingsService.pipe(
+    Effect.flatMap((settings) => settings.getSettings),
+    Effect.map((current) => expect(current).toEqual(expected)),
+  );
+
+it.effect("refuses a settings update when the caller's turn ends while it waits", () =>
+  Effect.gen(function* () {
+    const checked = yield* Deferred.make<void>();
+    const { caller, layer } = yield* makeLayer({
+      onGetThreadShell: Deferred.succeed(checked, undefined),
+    });
     yield* Effect.gen(function* () {
-      const toolkit = yield* EnvironmentToolkit;
+      const before = yield* (yield* Settings.ServerSettingsService).getSettings;
       const executor = yield* ThreadCommandExecutor.ThreadCommandExecutor;
       const held = yield* Deferred.make<void>();
       const release = yield* Deferred.make<void>();
@@ -76,22 +120,101 @@ it.effect("refuses a preferences update when the caller's turn ends while it wai
         )
         .pipe(Effect.forkChild);
       yield* Deferred.await(held);
-      const update = yield* toolkit
-        .handle("t3_environment_preferences_update", { newWorktreesStartFromOrigin: true })
-        .pipe(Stream.unwrap, Stream.runCollect, Effect.forkChild);
+      const update = yield* call("t3_environment_settings_update", {
+        patch: { newWorktreesStartFromOrigin: true },
+      }).pipe(Effect.forkChild);
       yield* Deferred.await(checked);
       yield* Ref.update(caller, (shell) => ({ ...shell, activeRunId: null }));
       yield* Deferred.succeed(release, undefined);
       yield* Fiber.join(holder);
-      const result = yield* Fiber.join(update);
-      expect(result.at(-1)?.result).toMatchObject({ code: "parent_not_active" });
-      expect(yield* Ref.get(updates)).toBe(0);
-    }).pipe(
-      Effect.provide(
-        McpToolAccess.HandlersLayer.layer(EnvironmentHandlers.layer).pipe(
-          Layer.provideMerge(layerDependencies),
-        ),
-      ),
-    );
+      expect(yield* Fiber.join(update)).toMatchObject({ code: "parent_not_active" });
+      yield* unchangedSettings(before);
+    }).pipe(Effect.provide(layer));
+  }),
+);
+
+it.effect("refuses settings and shortcuts agents may not or cannot write", () =>
+  Effect.gen(function* () {
+    const { writes, layer } = yield* makeLayer();
+    const cases = [
+      [
+        call("t3_environment_settings_update", { patch: { enableAgentDeviceAccess: true } }),
+        "capability_denied",
+      ],
+      [
+        call("t3_environment_settings_update", {
+          patch: { projectSettingsOverrides: { [projectId]: { enableAgentDeviceAccess: true } } },
+        }),
+        "capability_denied",
+      ],
+      [call("t3_environment_settings_update", { patch: { notASetting: true } }), "invalid_request"],
+      [
+        call("t3_environment_settings_update", { patch: { linkedEnvironmentsEnabled: "yes" } }),
+        "invalid_request",
+      ],
+      [call("t3_environment_settings_update", { patch: {} }), "invalid_request"],
+      [call("t3_environment_settings_read", { keys: ["notASetting"] }), "invalid_request"],
+      [call("t3_keybinding_upsert", { key: "mod+k", command: "not.a.command" }), "invalid_request"],
+      [
+        call("t3_keybinding_upsert", { key: "mod+k+j", command: "terminal.toggle" }),
+        "invalid_request",
+      ],
+      [
+        call("t3_keybinding_remove", { key: "mod+k", command: "terminal.toggle" }),
+        "invalid_request",
+      ],
+    ] as const;
+    yield* Effect.gen(function* () {
+      const before = yield* (yield* Settings.ServerSettingsService).getSettings;
+      for (const [result, code] of cases) expect(yield* result).toMatchObject({ code });
+      expect(yield* Ref.get(writes)).toBe(0);
+      yield* unchangedSettings(before);
+    }).pipe(Effect.provide(layer));
+  }),
+);
+
+it.effect("lets agents give up browser and device access but not take back a denial", () =>
+  Effect.gen(function* () {
+    const { layer } = yield* makeLayer({
+      settings: {
+        enableAgentBrowserAccess: true,
+        projectSettingsOverrides: { [projectId]: { enableAgentBrowserAccess: false } },
+      },
+    });
+    yield* Effect.gen(function* () {
+      const settings = yield* Settings.ServerSettingsService;
+      const before = yield* settings.getSettings;
+      for (const entry of [null, {}])
+        expect(
+          yield* call("t3_environment_settings_update", {
+            patch: { projectSettingsOverrides: { [projectId]: entry } },
+          }),
+        ).toMatchObject({ code: "capability_denied" });
+      yield* unchangedSettings(before);
+      yield* call("t3_environment_settings_update", { patch: { enableAgentBrowserAccess: false } });
+      expect((yield* settings.getSettings).enableAgentBrowserAccess).toBe(false);
+    }).pipe(Effect.provide(layer));
+  }),
+);
+
+it.effect("lists every loaded shortcut in a form that writes back", () =>
+  Effect.gen(function* () {
+    const { writes, layer } = yield* makeLayer();
+    yield* Effect.gen(function* () {
+      const read = yield* call("t3_keybindings_read", {});
+      const listed = (read as { keybindings: ReadonlyArray<typeof longRule> }).keybindings;
+      expect(listed.find((rule) => rule.key === longRule.key)).toEqual(longRule);
+      expect(
+        yield* call("t3_keybinding_upsert", { ...longRule, key: "mod+alt+j", replace: longRule }),
+      ).toHaveProperty("keybindings");
+      expect(
+        yield* call("t3_keybinding_remove", {
+          key: "MOD+SHIFT+B",
+          command: "threadPanel.toggle",
+          when: "!terminalFocus",
+        }),
+      ).toHaveProperty("keybindings");
+      expect(yield* Ref.get(writes)).toBe(2);
+    }).pipe(Effect.provide(layer));
   }),
 );

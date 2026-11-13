@@ -350,8 +350,24 @@ const T3_MCP_TOOLS: Readonly<Record<string, T3McpToolDefinition>> = {
     ["Forget", "Forgetting", "Forgot", "a linked environment"],
     "environment-unlink",
   ),
-  t3_environment_preferences_update: tool(
-    ["Update", "Updating", "Updated", "environment preferences"],
+  t3_environment_settings_read: tool(
+    ["Read", "Reading", "Read", "environment settings"],
+    "environment-read",
+  ),
+  t3_environment_settings_update: tool(
+    ["Update", "Updating", "Updated", "environment settings"],
+    "environment-update",
+  ),
+  t3_keybindings_read: tool(
+    ["List", "Listing", "Listed", "keyboard shortcuts"],
+    "environment-read",
+  ),
+  t3_keybinding_upsert: tool(
+    ["Set", "Setting", "Set", "a keyboard shortcut"],
+    "environment-update",
+  ),
+  t3_keybinding_remove: tool(
+    ["Remove", "Removing", "Removed", "a keyboard shortcut"],
     "environment-update",
   ),
   t3_thread_launch: tool(["Launch", "Launching", "Launched", "a project thread"], "thread-create"),
