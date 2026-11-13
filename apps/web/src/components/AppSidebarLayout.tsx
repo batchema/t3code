@@ -288,17 +288,8 @@ function registerThreadUndoCommands(
     if (threadSidebarShown()) releaseThreadUndoShortcut();
   };
   window.addEventListener("input", onInput, true);
-  const unregisterRunner = registerCommandRunner(
-    (command) =>
-      command === "thread.undo" &&
-      threadSidebarShown() &&
-      !isCommandPaletteOpen() &&
-      !isModelPickerOpen() &&
-      undoLatestThreadAction(),
-  );
   return () => {
     unregister();
-    unregisterRunner();
     window.removeEventListener("input", onInput, true);
   };
 }

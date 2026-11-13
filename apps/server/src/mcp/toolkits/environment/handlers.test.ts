@@ -175,6 +175,7 @@ it.effect("refuses settings and shortcuts agents may not or cannot write", () =>
       ],
       [call("t3_app_command", { command: "not.a.command" }), "invalid_request"],
       [call("t3_app_command", { command: "composer.sendAlternate" }), "invalid_request"],
+      [call("t3_app_command", { command: "thread.undo" }), "invalid_request"],
     ] as const;
     yield* Effect.gen(function* () {
       const before = yield* (yield* Settings.ServerSettingsService).getSettings;

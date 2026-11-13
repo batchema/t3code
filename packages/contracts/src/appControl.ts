@@ -3,13 +3,17 @@ import { Schema } from "effect";
 import { TrimmedNonEmptyString } from "./baseSchemas.ts";
 import { STATIC_KEYBINDING_COMMANDS } from "./keybindings.ts";
 
-/** These send what the user wrote or listen to them; only the user may trigger them. */
+/**
+ * Only the user may trigger these: they send what the user wrote, listen to them, or (undo)
+ * replay actions that may belong to other environments.
+ */
 const USER_ONLY_COMMANDS = new Set<string>([
   "composer.sendAlternate",
   "composer.sendBackground",
   "composer.sendAndNewThread",
   "composer.dictation",
   "thread.steerQueuedMessage",
+  "thread.undo",
 ]);
 
 /** Shortcut commands an agent may run in the user's window. */
