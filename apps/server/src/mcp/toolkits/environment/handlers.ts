@@ -4,6 +4,7 @@ import {
   KeybindingRule,
   OrchestratorMcpFailure,
   ProjectId,
+  ClientServerSettingsPatch,
   ServerSettings,
   ServerSettingsPatch,
   STATIC_KEYBINDING_COMMANDS,
@@ -47,11 +48,14 @@ export function preferences(settings: ServerSettings) {
 }
 
 const SETTINGS_KEYS = new Set(Object.keys(ServerSettings.fields));
-const PATCH_KEYS = new Set(Object.keys(ServerSettingsPatch.fields));
+const PATCH_KEYS = new Set(Object.keys(ClientServerSettingsPatch.fields));
+const THEME_KEYS = new Set(
+  Object.keys(ServerSettingsPatch.fields).filter((key) => !PATCH_KEYS.has(key)),
+);
 
 const invalid = (message: string) =>
   new OrchestratorMcpFailure({ code: "invalid_request", message });
-const decodePatch = Schema.decodeUnknownEffect(ServerSettingsPatch);
+const decodePatch = Schema.decodeUnknownEffect(ClientServerSettingsPatch);
 const encodeSettings = Schema.encodeEffect(ServerSettings);
 const decodeKeybinding = Schema.decodeUnknownEffect(KeybindingRule);
 const decodeAppCommand = Schema.decodeUnknownEffect(AppCommand);
@@ -187,7 +191,10 @@ export const layer = McpToolAccess.toLayer(EnvironmentToolkit, {
       if (keys.length === 0) return yield* invalid("`patch` is empty.");
       const unknown = keys.filter((key) => !PATCH_KEYS.has(key));
       if (unknown.length > 0)
-        return yield* invalid(`Unknown or read-only settings: ${unknown.join(", ")}.`);
+        return yield* invalid(
+          `Unknown or read-only settings: ${unknown.join(", ")}.` +
+            (unknown.some((key) => THEME_KEYS.has(key)) ? " Use `t3_theme_set` for themes." : ""),
+        );
       // Device hosts need the local-host filtering only the RPC path applies.
       if (keys.includes("deviceHosts"))
         return yield* new OrchestratorMcpFailure({
