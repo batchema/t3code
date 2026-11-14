@@ -1,0 +1,79 @@
+#!/bin/sh
+# Sanu Code: runs this fork from source beside an installed T3 Code, with its own data in ~/.sanucode.
+#   sanucode           serve the web app (extra flags pass through, e.g. --share --built)
+#   sanucode app       open the desktop app (shares data with the web app; run one at a time)
+#   sanucode import    replace Sanu Code's threads and preferences with a fresh copy of T3 Code's
+#   sanucode install   link `sanucode` and `sn` in ~/.local/bin to this checkout
+set -eu
+
+repo=$(cd "$(dirname "$(realpath "$0")")/.." && pwd)
+home="$HOME/.sanucode"
+
+case "${1:-}" in
+  help | -h | --help)
+    sed -n '2,6s/^# //p' "$repo/scripts/sanucode"
+    exit 0
+    ;;
+  install)
+    bin="$HOME/.local/bin"
+    mkdir -p "$bin"
+    ln -sfn "$repo/scripts/sanucode" "$bin/sanucode"
+    ln -sfn sanucode "$bin/sn"
+    echo "Linked sanucode and sn in $bin to $repo."
+    case ":$PATH:" in
+      *":$bin:"*) ;;
+      *) echo "Add $bin to your PATH to use them." ;;
+    esac
+    exit 0
+    ;;
+esac
+
+if ! command -v vp >/dev/null 2>&1; then
+  echo "sanucode: vp is not installed. See \"Install vp\" in $repo/README.md." >&2
+  exit 1
+fi
+
+# An explicit version keeps the pinned Node even when vp defers to a system Node such as nvm's.
+node_version=$(sed -n 's/^ *"node": "\([0-9.]*\)".*/\1/p' "$repo/package.json" | head -n 1)
+cd "$repo"
+
+case "${1:-}" in
+  app)
+    shift
+    set -- dev:desktop --home-dir "$home" "$@"
+    ;;
+  import)
+    t3_data="$HOME/.t3/userdata"
+    data="$home/userdata"
+    backup="$home/backup"
+    prefs="settings.json keybindings.json keybindings-migrations client-settings.json"
+
+    # SQLite removes the -wal file on a clean shutdown, so its presence means Sanu Code is open.
+    if [ -e "$data/statev2.sqlite-wal" ]; then
+      echo "sanucode: Sanu Code is running. Quit it, then import again." >&2
+      exit 1
+    fi
+
+    mkdir -p "$data" "$backup"
+    for file in statev2.sqlite $prefs; do
+      if [ -f "$data/$file" ]; then cp "$data/$file" "$backup/"; fi
+    done
+
+    vp env exec --node "$node_version" vp run migrate-dev-db \
+      --base-dir "$home" --projects 1000 --threads-per-project 1000
+
+    for file in $prefs; do
+      if [ -f "$t3_data/$file" ]; then cp "$t3_data/$file" "$data/"; fi
+    done
+
+    echo
+    echo "Imported T3 Code. Threads still running there were skipped."
+    echo "Previous Sanu Code data is in $backup."
+    exit 0
+    ;;
+  *)
+    set -- dev --home-dir "$home" --host 0.0.0.0 --no-auto-bootstrap-project-from-cwd "$@"
+    ;;
+esac
+
+exec vp env exec --node "$node_version" vp run "$@"
