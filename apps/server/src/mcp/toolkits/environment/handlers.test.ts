@@ -162,6 +162,10 @@ it.effect("refuses settings and shortcuts agents may not or cannot write", () =>
       ],
       [call("t3_environment_settings_update", { patch: { notASetting: true } }), "invalid_request"],
       [
+        call("t3_environment_settings_update", { patch: { defaultTheme: "no-such-theme" } }),
+        "invalid_request",
+      ],
+      [
         call("t3_environment_settings_update", { patch: { linkedEnvironmentsEnabled: "yes" } }),
         "invalid_request",
       ],
