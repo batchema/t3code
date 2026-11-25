@@ -71,6 +71,10 @@ unique to this fork only work on machines that run Sanu Code.
 
 ## Day to day
 
+- Upstream syncs arrive as PRs from the `sync-upstream` skill. To get one every day, add a daily
+  task for this project in **Settings → Scheduled tasks** with the prompt
+  `Use the sync-upstream skill.` and the workspace **Create a new worktree**. Merge each sync PR
+  with a merge commit, not squash.
 - Update with `git pull` in the checkout, then restart Sanu Code.
 - Keep T3 Code installed as a fallback, but never run agents in the same worktree from both apps.
 - Once you stop using T3 Code, remove its environment from your phone and other clients.
